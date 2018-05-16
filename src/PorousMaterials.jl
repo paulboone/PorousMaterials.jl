@@ -13,6 +13,7 @@ include("Misc.jl")
 include("Grid.jl")
 include("MChelpers.jl")
 include("GCMC.jl")
+include("Visualize.jl")
 
 export Box, Framework, read_crystal_structure_file, replicate_to_xyz, remove_overlapping_atoms,
        strip_numbers_from_atom_labels!, write_unitcell_boundary_vtk, chemical_formula, molecular_weight, crystal_density,
@@ -27,5 +28,6 @@ export Box, Framework, read_crystal_structure_file, replicate_to_xyz, remove_ove
        insert_molecule!, delete_molecule!, translate_molecule!, # MChelpers.jl
        apply_periodic_boundary_condition!,
        guest_guest_vdw_energy, gcmc_simulation,  # GCMC.jl
-       electrostatic_potential, electrostatic_potential_energy, precompute_kvec_wts, allocate_eikr, setup_Ewald_sum # ElectrostaticEnergetics.jl
+       electrostatic_potential, electrostatic_potential_energy, precompute_kvec_wts, allocate_eikr, setup_Ewald_sum, # ElectrostaticEnergetics.jl
+       FrameImage, construct_frame_image, plot_atoms, add_bonds # Visualize.jl
 end

@@ -42,6 +42,7 @@ https://en.wikipedia.org/wiki/CPK_coloring
 - `atom_colors::Dict{Symbol, Tuple{Int, Int, Int}}`: A dictionary linking an element symbol to its' corresponding CPK color in RGB
 """
 function read_cpk_colors()
+    @assert isfile(PATH_TO_DATA * "cpk_atom_colors.csv")
     atom_colors = Dict{Symbol, Tuple{Int, Int, Int}}()
     df_colors = CSV.read(PATH_TO_DATA * "cpk_atom_colors.csv")
     for row in eachrow(df_colors)
@@ -60,8 +61,9 @@ the atomic radii of carbon (10.87 Angstrom).
 - `atomic_radii::Dict{Symbol, Float64}`: A dictionary linking an element symbol to its' corresponding atomic radius
 """
 function read_atomic_radii()
+    @assert isfile(PATH_TO_DATA * "atom_properties.csv")
     atomic_radii = Dict{Symbol, Float64}()
-    df_props = CSV.read(PATH_TO_DATA * "atom_properties.csv", nullable=true)
+    df_props = CSV.read(PATH_TO_DATA * "atom_properties.csv", allowmissing=:all)
     for row in eachrow(df_props)
         if ! ismissing(row[Symbol("atomicradius[Angstrom]")])
             atomic_radii[Symbol(row[:atom])] = row[Symbol("atomicradius[Angstrom]")]

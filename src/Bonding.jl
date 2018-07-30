@@ -12,7 +12,7 @@ using DataFrames
 function find_bonds(framework::Framework)
 
     #read in  atom_properties
-    #will be useful for both the total number of n_atoms
+    #will be useful for both the total number of atoms
     #as well as for comparing atoms and being able to convert from atom_id to atom name (maybe)
     atoms = CSV.read(PATH_TO_DATA * "atom_properties.csv")
     n = length(atoms[:atom])
@@ -37,41 +37,53 @@ function find_bonds(framework::Framework)
 
     for i = 1:framework.n_atoms
         #defines atom_1 to be i
-        atom_1 = i
-        for j = 1:framework.n_atoms
-            #should ignore the bonds betweeen the same atom
-            #distance would be 0 and could confuse bonding rules
+        atom_1_id = i
 
+        for j = 1:framework.n_atoms
             #defines atom_2 to be j
-            atom_2 = j
+            atom_2_id = j
 
             #find distance between atom we care about and current atom
             #dist = distance(atom_1, atom_2)
 
             #find characteristic bond length
-            #charac_bond_length = bonding_rules(atom_1, atom_2)
+            charac_bond_length = bonding_rules(atom_1_id, atom_2_id, framework)
 
             bond_length = 1
-            charac_bond_length = 2
             #creates bond in feature array
-            if bond_length < charac_bond_length
-                #finds index of atom that is bonded 
-                k = find(atoms_list .== string(framework.atoms[j]))
-                feat_array[atom_1, n + k] += 1
+            if bond_length < charac_bond_length && bond_length > 0.4
+                #finds index of atom that is bonded
+                k = find(atoms_list .== string(framework.atoms[atom_2_id]))
+                #add bond to feature array
+                feat_array[atom_1_id, n + k] += 1
             end
         end
     end
     return feat_array
 end
 
-
-
-
-function distance(atom_1, atom_2)
-    cart = framework.box.f_to_c *framework.xf
+function distance(atom_1::Int64, atom_2::Int64)
+    cart = framework.box.f_to_c * framework.xf
 
 end
 
-function bonding_rules()
+function bonding_rules(atom_1_id::Int64, atom_2_id::Int64, framework::Framework)
+    #finds which atoms are being bonded
+    atom_1 = framework.atoms[atom_1_id]
+    atom_2 = framework.atoms[atom_2_id]
 
+    #bonding rules for Hydrogen
+    if atom_1 == :H || atom_2 == :H
+        charac_bond_length = 1.2
+
+    #Bonding rules for Calcium
+elseif atom_1 == :Ca || atom_2 == :Ca
+        charac_bond_length = 2.5
+
+    #Bonding rules for the rest
+    else
+        charac_bond_length = 1.9
+    end
+
+    return charac_bond_length
 end

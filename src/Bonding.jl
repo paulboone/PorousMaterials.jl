@@ -45,11 +45,11 @@ function find_bonds(framework::Framework)
 
             #find distance between atom we care about and current atom
             #dist = distance(atom_1, atom_2)
+            bond_length = 1
 
             #find characteristic bond length
             charac_bond_length = bonding_rules(atom_1_id, atom_2_id, framework)
 
-            bond_length = 1
             #creates bond in feature array
             if bond_length < charac_bond_length && bond_length > 0.4
                 #finds index of atom that is bonded
@@ -75,11 +75,9 @@ function bonding_rules(atom_1_id::Int64, atom_2_id::Int64, framework::Framework)
     #bonding rules for Hydrogen
     if atom_1 == :H || atom_2 == :H
         charac_bond_length = 1.2
-
     #Bonding rules for Calcium
-elseif atom_1 == :Ca || atom_2 == :Ca
+    elseif atom_1 == :Ca || atom_2 == :Ca
         charac_bond_length = 2.5
-
     #Bonding rules for the rest
     else
         charac_bond_length = 1.9

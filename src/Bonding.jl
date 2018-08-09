@@ -1,18 +1,28 @@
 using CSV
 using DataFrames
 
-
-#create dictionary for bonding rules
-
 #Easy copy and paste for framework, should be deleted eventually
 #framework = read_crystal_structure_file("SBMOF-1_cory.cif")
+
+#read in  atom_properties
+atoms = CSV.read(PATH_TO_DATA * "atom_properties.csv")
+
+#Creates the dictionary of covalent radii for bonding rules
+function create_bonding_rules()
+    bonding_rules = Dict{Symbol,Float64}()
+    for i = 1:length(atoms[:atom])
+        if ! ismissing(atoms[Symbol("singlebondcovalentradius[Angstrom]")][i])
+            bonding_rules[Symbol(atoms[:atom][i])] = Float64(atoms[("singlebondcovalentradius[Angstrom]")][i])
+        end
+    end
+    return bonding_rules
+end
 
 #function find_bonds(framework::Framework, bonding_rules)
 function find_bonds(framework::Framework)
 
-    #read in  atom_properties
-    #will be useful for both the total number of atoms
-    atoms = CSV.read(PATH_TO_DATA * "atom_properties.csv")
+    create_bonding_rules()
+
     n = length(atoms[:atom])
 
     #initializes feat_array
@@ -34,10 +44,7 @@ function find_bonds(framework::Framework)
     end
 
     #actually finds the bonds
-    for i = 1:framework.n_atoms
-
-        #defines atom_1 to be i
-        atom_1_id = i
+    for atom_1_id = 1:framework.n_atoms
 
         #changes framework.xf to be a vector of distance from the atom in question
         #to all other atoms in the framework
@@ -52,18 +59,20 @@ function find_bonds(framework::Framework)
 
         distance = framework.box.f_to_c * distance
 
-        for j = 1:framework.n_atoms
-            #defines atom_2 to be j
-            atom_2_id = j
+        for atom_2_id = 1:framework.n_atoms
 
             #find magnitude of vector between atom we care about and current atom
             bond_length = norm(distance[:, atom_2_id])
 
             #find characteristic bond length
-            charac_bond_length = bonding_rules(atom_1_id, atom_2_id, framework)
+            charac_bond_length = bonding_rules[framework.atoms[atom_1_id]] + bonding_rules[framework.atoms[atom_2_id]]
+
+            #this is the percentage representing th furthest and shortest distance the bond
+            #can be from the average covalent radii sum and still be condiered bonded
+            tolerance = 0.1
 
             #creates bond in feature array
-            if bond_length < charac_bond_length && bond_length > 0.4
+            if ((charac_bond_length * (1 + tolerance)) < bond_length < charac_bond_length * (1 + tolerance)) && bond_length > 0.4
                 #finds index of atom that is bonded
                 k = find(atoms_list .== string(framework.atoms[atom_2_id]))
                 #add bond to feature array
@@ -73,23 +82,4 @@ function find_bonds(framework::Framework)
         end
     end
     return feat_array
-end
-
-function bonding_rules(atom_1_id::Int64, atom_2_id::Int64, framework::Framework)
-    #finds which atoms are being bonded
-    atom_1 = framework.atoms[atom_1_id]
-    atom_2 = framework.atoms[atom_2_id]
-
-    #bonding rules for Hydrogen
-    if atom_1 == :H || atom_2 == :H
-        charac_bond_length = 1.2
-    #Bonding rules for Calcium
-    elseif atom_1 == :Ca || atom_2 == :Ca
-        charac_bond_length = 2.5
-    #Bonding rules for the rest
-    else
-        charac_bond_length = 1.9
-    end
-
-    return charac_bond_length
 end

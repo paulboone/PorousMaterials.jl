@@ -12,7 +12,7 @@ function create_bonding_rules()
     bonding_rules = Dict{Symbol,Float64}()
     for i = 1:length(atoms[:atom])
         if ! ismissing(atoms[Symbol("singlebondcovalentradius[Angstrom]")][i])
-            bonding_rules[Symbol(atoms[:atom][i])] = Float64(atoms[("singlebondcovalentradius[Angstrom]")][i])
+            bonding_rules[Symbol(atoms[:atom][i])] = Float64(atoms[Symbol("singlebondcovalentradius[Angstrom]")][i])
         end
     end
     return bonding_rules
@@ -21,7 +21,7 @@ end
 #function find_bonds(framework::Framework, bonding_rules)
 function find_bonds(framework::Framework)
 
-    create_bonding_rules()
+    bonding_rules = create_bonding_rules()
 
     n = length(atoms[:atom])
 
@@ -69,10 +69,10 @@ function find_bonds(framework::Framework)
 
             #this is the percentage representing th furthest and shortest distance the bond
             #can be from the average covalent radii sum and still be condiered bonded
-            tolerance = 0.1
+            tol = 0.1
 
             #creates bond in feature array
-            if ((charac_bond_length * (1 + tolerance)) < bond_length < charac_bond_length * (1 + tolerance)) && bond_length > 0.4
+            if ((charac_bond_length * (1 - tol)) < bond_length < charac_bond_length * (1 + tol)) && bond_length > 0.4
                 #finds index of atom that is bonded
                 k = find(atoms_list .== string(framework.atoms[atom_2_id]))
                 #add bond to feature array

@@ -32,5 +32,5 @@ export Box, Framework, read_crystal_structure_file, replicate_to_xyz, remove_ove
        gcmc_simulation, adsorption_isotherm, stepwise_adsorption_isotherm,  # GCMC.jl
        electrostatic_potential, electrostatic_potential_energy, precompute_kvec_wts, setup_Ewald_sum, total, # ElectrostaticEnergetics.jl
        calculate_properties, PengRobinsonGas, #EOS.jl
-       find_bonds, create_bonds #bonding.jl
+       find_bonds, create_bonding_rules #bonding.jl
 end

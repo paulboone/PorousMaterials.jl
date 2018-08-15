@@ -28,15 +28,11 @@ function find_bonds(framework::Framework)
     #initializes feat_array
     feat_array = zeros(Float64, framework.n_atoms, 2 * n)
 
-    #creates a matrix just for use in the second iterator
-    #ALMOST CERTAINTLY A BETTER WAY TO DO THIS!!
-    atoms_list = atoms[:atom]
-
     #modifies feature vector matrix with atom identification for each atom id
     for i = 1:framework.n_atoms
         for j = 1:n
             #checks if name of atom is the same as the corresponding posiiton in the feature matrix
-            if string(framework.atoms[i]) == atoms_list[j]
+            if string(framework.atoms[i]) == atoms[:atom][j]
                 feat_array[i, j] = 1
                 break
             end
@@ -54,9 +50,11 @@ function find_bonds(framework::Framework)
         #couldn't get the element wise nearest_image to work
         #so the fix is to use a for loop
         for l = 1:framework.n_atoms
+            #NEEDS TO BE RECHECKED TO MAKE SURE IT IS ACTUALLY DOING THE NEAREST IMAGE
             nearest_image!(distance[:, l])
         end
 
+        #converts to cartesian distance
         distance = framework.box.f_to_c * distance
 
         for atom_2_id = 1:framework.n_atoms
@@ -67,14 +65,14 @@ function find_bonds(framework::Framework)
             #find characteristic bond length
             charac_bond_length = bonding_rules[framework.atoms[atom_1_id]] + bonding_rules[framework.atoms[atom_2_id]]
 
-            #this is the percentage representing th furthest and shortest distance the bond
-            #can be from the average covalent radii sum and still be condiered bonded
+            #this is the percentage representing the furthest and shortest distance the bond
+            #can be from the average covalent radii sum and still be condidered bonded
             tol = 0.1
 
             #creates bond in feature array
-            if ((charac_bond_length * (1 - tol)) < bond_length < charac_bond_length * (1 + tol)) && bond_length > 0.4
+            if ((charac_bond_length * (1 - tol)) < bond_length < charac_bond_length * (1 + tol))
                 #finds index of atom that is bonded
-                k = find(atoms_list .== string(framework.atoms[atom_2_id]))
+                k = find(atoms[:atom] .== string(framework.atoms[atom_2_id]))
                 #add bond to feature array
                 feat_array[atom_1_id, n + k] += 1
 

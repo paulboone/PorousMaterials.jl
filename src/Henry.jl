@@ -211,8 +211,11 @@ function _conduct_Widom_insertions(framework::Framework, molecule::Molecule,
 end
 
 function henry_result_savename(framework::Framework, molecule::Molecule, temperature::Float64,
-                               ljforcefield::LJForceField, insertions_per_volume::Int)
-    return @sprintf("henry_sim_%s_in_%s_%fK_%s_ff_%d_insertions_per_volume_with_%s_mixing_rules.jld",
+                               ljforcefield::LJForceField, insertions_per_volume::Int; comment::AbstractString="")
+    if comment != "" && comment[1] != '_'
+        comment = "_" * comment
+    end
+    return @sprintf("henry_sim_%s_in_%s_%fK_%s_ff_%d_insertions_per_volume%s.jld",
                     molecule.species, framework.name, temperature, ljforcefield.name,
                     insertions_per_volume, comment)
 end

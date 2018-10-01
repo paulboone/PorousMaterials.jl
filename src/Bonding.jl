@@ -4,7 +4,7 @@ using DataFrames
 #Easy copy and paste for framework, should be deleted eventually
 #framework = read_crystal_structure_file("SBMOF-1_cory.cif")
 
-#read in  atom_properties
+#read in  atom_propertiesd
 atoms = CSV.read(PATH_TO_DATA * "atom_properties.csv")
 
 #Creates the dictionary of covalent radii for bonding rules
@@ -19,13 +19,15 @@ function create_bonding_rules()
 end
 
 #function find_bonds(framework::Framework, bonding_rules)
-function find_bonds(framework::Framework)
+#use optional arguement to save tk file if needed (see gcmc)
+function find_bonds(framework::Framework; vtk_filename::String="")
 
     bonding_rules = create_bonding_rules()
 
     n = length(atoms[:atom])
 
     #initializes feat_array
+    #NOTE framework done changed
     feat_array = zeros(Float64, framework.n_atoms, 2 * n)
 
     #modifies feature vector matrix with atom identification for each atom id
@@ -47,10 +49,11 @@ function find_bonds(framework::Framework)
         atom_1_vector = framework.xf[:, atom_1_id]
         distance = framework.xf .- atom_1_vector
 
-        #couldn't get the element wise nearest_image to work
-        #so the fix is to use a for loop
+        #changed from element wise (for loop) to new nearest image
+        nearest_image!(distance)
+
+        #can be deleted later
         for l = 1:framework.n_atoms
-            #NEEDS TO BE RECHECKED TO MAKE SURE IT IS ACTUALLY DOING THE NEAREST IMAGE
             nearest_image!(distance[:, l])
         end
 

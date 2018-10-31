@@ -26,35 +26,12 @@ function identify_atoms_in_pdb(lines::Array{String, 1}, atoms::DataFrames.DataFr
     for (i, line) in enumerate(lines)
         line = split(line)
 
-        #This is not indexing the string array correctly (i don't think)
         if line[1] == "HETATM"
             id[count] = line[end]
             count += 1
         end
     end
-#=
-    #strips numbers off of the names if they are there
-    for i = 1:length(id)
 
-        #couldn't figurate out a way to iterate the number that is being tested
-        #Char(1) is not the same as'1'
-        if id[i][end] == '1'
-            id[i] = chop(id[1])
-            continue
-
-        elseif id[i][end] == '2'
-            id[i] = chop(id[1])
-        end
-
-    elseifif id[i][end] == '3'
-            id[i] = chop(id[1])
-        end
-
-        if id[i][end] == '4'
-            id[i] = chop(id[1])
-        end
-    end
-=#
     return id
 end
 

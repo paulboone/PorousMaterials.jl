@@ -89,10 +89,14 @@ include("Grid.jl")
 include("EOS.jl")
 include("Henry.jl")
 include("GCMC.jl")
+include("Bonding.jl")
 
 export
     # PorousMaterials.jl
     set_path_to_data, set_tutorial_mode,
+
+    # Bonding.jl
+    read_pdb, find_MOF, feature_array, Identify_atoms_in_pdb,
 
     # Box.jl
     Box, replicate, UnitCube, write_vtk,

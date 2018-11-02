@@ -17,23 +17,85 @@ function read_pdb(MOFname::String)
     return lines
 end
 
-function identify_atoms_in_pdb(lines::Array{String, 1}, atoms::DataFrames.DataFrame, atoms_in_MOF::Int64)
-    count = 1
-    #creates an array of string to hold atom identifiers
-    id = Array{String, 1}(undef, atoms_in_MOF)
+function extract_from_pdb(lines::Array{String, 1}, atoms::DataFrames.DataFrame, MOF::Framework)
 
-    #gets array of atomic names from PDB file
+    #NOTE right now the code can only handle 10 bonds, which seems to be enough to me
+
+    count = 1
+    count_2 = 1
+    #creates an array of string to hold atom identifiers and coords from the pdb
+    info = Array{String, 2}(undef, MOF.atoms.n_atoms, 14)
+
+    #array to hold the cart coords once theyve been translated to floats from strings
+    pdb_cart_coords = zeros(Float64, MOF.atoms.n_atoms, 3)
+
+    #arrays used to store atomic number, and bonding info
+    unordered_MOF_info = zeros(Float64, MOF.atoms.n_atoms, 11)
+    ordered_MOF_info = zeros(Float64, MOF.atoms.n_atoms, 11)
+
+    #stores array of atomic names from PDB file
+    #NOTE This doens't appear to be working
+    #       all entries appear as undef
     for (i, line) in enumerate(lines)
         line = split(line)
 
         if line[1] == "HETATM"
-            id[count] = line[end]
+            #Stores Atom name
+            info[count, 1] = line[end]
+            #stores atom cartesian coordinate in angstroms
+            info[count, 2:4] = line[6:8]
             count += 1
+
+        end
+
+        if line[1] == "CONECT"
+            for j = (1:length(line) - 2)
+                #this makes sense if you read the pdb format
+                info[count_2, j + 1] = line[j + 1]
+            end
+            count_2 += 1
+        end
+
+
+
+    end
+#=
+    #converts the string representations of the cartesian coords from the pdb
+    #into floats in a new array
+    pdb_cart_coords = map(x->parse(Float64, x), info[:, 2:4])
+
+
+    #stores atomic numbers to the corresponding atom in the MOF
+    for i = 1:length(info[1,:])
+        for j = 1:length(atoms[:atom])
+            #checks if name of atom is the same as the corresponding posiiton in the feature matrix
+            if info[i, 1] == atoms[:atom][j]
+                unordered_MOF_info[i, 1] =  j
+                break
+            end
         end
     end
 
-    return id
+
+
+    #corrects atom order by comparing the cartesian coordinates of each atom in the pdb vs the framework
+    #first convert framework from frac coords to cartesian
+    MOF_cart_coords = (MOF.box.f_to_c * MOF.atoms.xf)'
+    #Then compare those coords to the coords from the pdb to unscramble
+    for (i, atom_1) in enumerate(MOF_cart_coords[1, :])
+        for (j, atom_2) in enumerate(MOF_cart_coords[1, :])
+            if pdb_cart_coords[i, 1:3] == MOF_cart_coords[j, 1:3]
+                ordered_MOF_info[j, 1:4] = unordered_MOF_info[i, 1:4]
+            end
+        end
+    end
+
+    =#
+    return info
 end
+
+
+
 
 function feature_array(MOFname::String)
     #gets info from pdb file
@@ -45,25 +107,20 @@ function feature_array(MOFname::String)
     #creates framework of the MOF in question
     MOF = find_MOF(MOFname)
 
-    atoms_in_MOF = MOF.atoms.n_atoms
-
     #creates a nice array where each row corresponds to the number of the atom
     #in the MOF and the entry is the name of the atom
-    atom_ids = identify_atoms_in_pdb(lines, atoms, atoms_in_MOF)
+    MOF_info = extract_from_pdb(lines, atoms, MOF)
 
     #initializes feat_array
-    feat_array = zeros(Float64, atoms_in_MOF, 2 * length(atoms[:atom]))
-
-
-    #NOTE haven't touched anything below here yet
-
-#=
+    feat_array = zeros(Float64, MOF.atoms.n_atoms, 2 * length(atoms[:atom]))
 
     #modifies feature vector matrix with atom identification for each atom id
-    for i = 1:framework.atoms.n_atoms
-        for j = 1:n
+
+    #=
+    for i = 1:length(atom_ids)
+        for j = 1:length(atoms[:atom])
             #checks if name of atom is the same as the corresponding posiiton in the feature matrix
-            if string(framework.atoms[i]) == atoms[:atom][j]
+            if atom_ids[i] == atoms[:atom][j]
                 feat_array[i, j] = 1
                 break
             end
@@ -71,46 +128,15 @@ function feature_array(MOFname::String)
     end
 
     #actually finds the bonds
-    for atom_1_id = 1:framework.n_atoms
-
-        #changes framework.xf to be a vector of distance from the atom in question
-        #to all other atoms in the framework
-        atom_1_vector = framework.xf[:, atom_1_id]
-        distance = framework.xf .- atom_1_vector
-
-        #changed from element wise (for loop) to new nearest image
-        nearest_image!(distance)
-
-        #can be deleted later
-        #for l = 1:framework.n_atoms
-        #    nearest_image!(distance[:, l])
-        #end
-
-        #converts to cartesian distance
-        distance = framework.box.f_to_c * distance
-
-        for atom_2_id = 1:framework.atoms.n_atoms
-
-            #find magnitude of vector between atom we care about and current atom
-            bond_length = norm(distance[:, atom_2_id])
-
-            #find characteristic bond length
-            charac_bond_length = bonding_rules[framework.atoms[atom_1_id]] + bonding_rules[framework.atoms[atom_2_id]]
-
-            #this is the percentage representing the furthest and shortest distance the bond
-            #can be from the average covalent radii sum and still be condidered bonded
-            tol = 0.1
+    for atom_1_id = 1:length(atom_ids)
+        for atom_2_id = 1:length(atom_ids)
 
             #creates bond in feature array
-            if ((charac_bond_length * (1 - tol)) < bond_length < charac_bond_length * (1 + tol))
-                #finds index of atom that is bonded
-                k = find(atoms[:atom] .== string(framework.atoms[atom_2_id]))
-                #add bond to feature array
-                feat_array[atom_1_id, n + k] += 1
-
-            end
+            #if
+            #    feat_array[atom_1_id, n + k] += 1
+            #end
         end
     end
     =#
-    return atom_ids
+    return MOF_info
 end

@@ -96,7 +96,7 @@ export
     set_path_to_data, set_tutorial_mode,
 
     # Bonding.jl
-    read_pdb, find_MOF, feature_array, Identify_atoms_in_pdb,
+    read_pdb, find_MOF, feature_array, extract_bonds_from_pdb,
 
     # Box.jl
     Box, replicate, UnitCube, write_vtk,

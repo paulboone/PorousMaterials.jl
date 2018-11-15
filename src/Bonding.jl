@@ -97,26 +97,25 @@ function extract_bonds_from_pdb(lines::Array{String, 1}, atoms::DataFrames.DataF
 
 
     #converts the string representations of the cartesian coords from the pdb
-    #into floats in a new array
+    #into Floats in a new array
     info_Float64 = map(x->parse(Float64, x), info_String[:, 2:14])
 
     unordered_MOF_info[:, 2:11] = info_Float64[:, 4:13]
     #corrects atom order by comparing the cartesian coordinates of each atom in the pdb vs the framework
     #first convert framework from frac coords to cartesian
-    
+
 #NOTE needs to be changed to use isapprox()
-#=
+
     MOF_cart_coords = (MOF.box.f_to_c * MOF.atoms.xf)'
     #Then compare those coords to the coords from the pdb to unscramble
-    for (i, atom_1) in enumerate(MOF_cart_coords[1, :])
-        for (j, atom_2) in enumerate(MOF_cart_coords[1, :])
-            if info_Float64[i, 1:3] == MOF_cart_coords[j, 1:3]
-                ordered_MOF_info[j, 1:4] = unordered_MOF_info[i, 1:4]
+    for (i, atom_1) in enumerate(MOF_cart_coords[:, 1])
+        for (j, atom_2) in enumerate(MOF_cart_coords[:, 1])
+            if isapprox(info_Float64[i, 1:3], MOF_cart_coords[j, 1:3]; atol = 0.001)
+                ordered_MOF_info[j, :] = unordered_MOF_info[i, :]
             end
         end
     end
-=#
-    return unordered_MOF_info
+    return ordered_MOF_info
 end
 
 
@@ -134,34 +133,26 @@ function feature_array(MOFname::String)
 
     #creates a nice array where each row corresponds to the number of the atom
     #in the MOF and the entry is the name of the atom
-    MOF_info = extract_bonds_from_pdb(lines, atoms, MOF)
+    ordered_MOF_info = extract_bonds_from_pdb(lines, atoms, MOF)
 
     #initializes feat_array
     feat_array = zeros(Float64, MOF.atoms.n_atoms, 2 * length(atoms[:atom]))
 
-    #modifies feature vector matrix with atom identification for each atom id
+    #creates Feature array
+    for i = 1:length(ordered_MOF_info[:,1])
+        #adds one to location corresponding to atomic number for each row
+        feat_array[i, Int64(ordered_MOF_info[i, 1])] = 1
 
-    #=
-    for i = 1:length(atom_ids)
-        for j = 1:length(atoms[:atom])
-            #checks if name of atom is the same as the corresponding posiiton in the feature matrix
-            if atom_ids[i] == atoms[:atom][j]
-                feat_array[i, j] = 1
+        #adds bonds in feature array
+        for j = 2:length(ordered_MOF_info[i, :])
+            #Stops loop when all bonds are added
+            if ordered_MOF_info[i, j] == 0
                 break
             end
+            #NOTE bond added at correct position minus 1??
+            feat_array[i, Int64(ordered_MOF_info[Int64(ordered_MOF_info[i, j]), 1]) + length(atoms[:atom])] += 1
         end
-    end
 
-    #actually finds the bonds
-    for atom_1_id = 1:length(atom_ids)
-        for atom_2_id = 1:length(atom_ids)
-
-            #creates bond in feature array
-            #if
-            #    feat_array[atom_1_id, n + k] += 1
-            #end
-        end
     end
-    =#
-    return MOF_info
+    return feat_array
 end

@@ -90,6 +90,7 @@ include("Grid.jl")
 include("EOS.jl")
 include("Henry.jl")
 include("GCMC.jl")
+include("Skeleton.jl")
 
 export
     # PorousMaterials.jl
@@ -146,5 +147,8 @@ export
     gcmc_result_savename, GCMCstats, MarkovCounts,
 
     # Henry.jl
-    henry_coefficient, henry_result_savename
+    henry_coefficient, henry_result_savename,
+
+    # Skeleton.jl
+    binarize
 end

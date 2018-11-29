@@ -1,4 +1,3 @@
-
 function find_MOF(MOFname::String)
     if isfile(joinpath(PATH_TO_DATA, "crystals", MOFname * "_clean_min_charges.cif"))
         framework = Framework(MOFname * "_clean_min_charges.cif")
@@ -23,118 +22,11 @@ end
 #Framework() can read pdb files.
 function extract_bonds_from_pdb(lines::Array{String, 1}, atoms::DataFrames.DataFrame, MOF::Framework)
 
-    #NOTE Arrays should be changed so they are sized to exactly the number of bonds
-    #This can be done with the function "insert!"
-
-    zero_location = 0
-
     #creates an array of string to hold atom identifiers and coords from the pdb
-    info_String = Array{String, 2}(undef, MOF.atoms.n_atoms, 14)
-
-    #NOTE This turns array of undefs for info_String into array of strings of "0"
-    #This is necessary because I want to know the length of the array later
-    #as well I would like to know where information stops and undefs start in a row
-    #There's got to be a better way to do this...
-    for i = 1:MOF.atoms.n_atoms
-        for j = 1:14
-            info_String[i,j] = "0"
-        end
-    end
-
-    #array to hold the cart coords once theyve been translated to floats from strings
-    info_Float64 = zeros(Float64, MOF.atoms.n_atoms, 14)
+    info_String = fill("O", (MOF.atoms.n_atoms, 4))
 
     #arrays used to store atomic number, and bonding info
-    unordered_MOF_info = zeros(Float64, MOF.atoms.n_atoms, 11)
-    ordered_MOF_info = zeros(Float64, MOF.atoms.n_atoms, 11)
-
-    for (i, line) in enumerate(lines)
-        line = split(line)
-
-        if line[1] == "HETATM"
-        atom_id = parse(Int64, line[2])
-            #Stores Atom name
-            info_String[atom_id, 1] = line[end]
-            #stores atom cartesian coordinate in angstroms
-            info_String[atom_id, 2:4] = line[6:8]
-        end
-
-        if line[1] == "CONECT"
-        atom_id = parse(Int64, line[2])
-
-        #quick and dirty way to find the first entry with a zero in info_String[]
-        #necessary because pdb fiels split bonding into two lines, and
-        #the info_String matrix needs to have all bonding info in one line
-        for k = 1:length(info_String[atom_id, :])
-            if info_String[atom_id, k] == "0"
-                zero_location = k - 1
-                break
-            end
-        end
-
-            for j = 1:(length(line) - 2)
-
-                #stores the bonding info as the atoms bonded to it
-                #row in info_String is the atom_id from the pdb, while row is the first
-                #entry with a zero in the row
-                info_String[atom_id, zero_location + j] = line[j + 2]
-            end
-        end
-    end
-
-
-
-    #stores atomic numbers to the corresponding atom in the MOF
-    for i = 1:length(info_String[:, 1])
-        for j = 1:length(atoms[:atom])
-            #changes atom name to atomic number in new unordered matrix
-            if info_String[i, 1] == uppercase(String(atoms[:atom][j]))
-                unordered_MOF_info[i, 1] =  j
-                break
-            end
-        end
-    end
-
-
-    #converts the string representations of the cartesian coords from the pdb
-    #into Floats in a new array
-    info_Float64 = map(x->parse(Float64, x), info_String[:, 2:14])
-
-    unordered_MOF_info[:, 2:11] = info_Float64[:, 4:13]
-    #corrects atom order by comparing the cartesian coordinates of each atom in the pdb vs the framework
-    #first convert framework from frac coords to cartesian
-
-#NOTE needs to be changed to use isapprox()
-
-    MOF_cart_coords = (MOF.box.f_to_c * MOF.atoms.xf)'
-    #Then compare those coords to the coords from the pdb to unscramble
-    for (i, atom_1) in enumerate(MOF_cart_coords[:, 1])
-        for (j, atom_2) in enumerate(MOF_cart_coords[:, 1])
-            if isapprox(info_Float64[i, 1:3], MOF_cart_coords[j, 1:3]; atol = 0.001)
-                ordered_MOF_info[j, :] = unordered_MOF_info[i, :]
-            end
-        end
-    end
-    return unordered_MOF_info
-end
-
-
-#=function extract_bonds_from_pdb_2(lines::Array{String, 1}, atoms::DataFrames.DataFrame, MOF::Framework)
-
-    #NOTE Arrays should be changed so they are sized to exactly the number of bonds
-    #This can be done with the function "insert!"
-
-    zero_location = 0
-
-    #creates an array of string to hold atom identifiers and coords from the pdb
-    info_String = fill("O", (MOF.atoms.n_atoms, 14))
-
-    #array to hold the cart coords once theyve been translated to floats from strings
-    info_Float64 = zeros(Float64, MOF.atoms.n_atoms, 14)
-
-    #arrays used to store atomic number, and bonding info
-    unordered_MOF_info = zeros(Float64, MOF.atoms.n_atoms, 11)
-    ordered_MOF_info = zeros(Float64, MOF.atoms.n_atoms, 11)
+    unordered_MOF_info = []
     bond_dict = Dict{Int64, Array{Int64, 1}}()
 
     for (i, line) in enumerate(lines)
@@ -155,44 +47,82 @@ end
                 append!(bond_dict[atom_id], parse(Int64, line[j]))
             end
         end
-
-
+    end
 
     #stores atomic numbers to the corresponding atom in the MOF
     for i = 1:length(info_String[:, 1])
+        #changes atom name to atomic number in info matrix
         for j = 1:length(atoms[:atom])
-            #changes atom name to atomic number in new unordered matrix
             if info_String[i, 1] == uppercase(String(atoms[:atom][j]))
-                unordered_MOF_info[i, 1] =  j
+                info_String[i, 1] =  string(j)
                 break
             end
         end
     end
 
+    #finds the max bonds an atom has in the pdb file
+    #useful to set the number of columns in bonding array
+    max_bonds = 0
+    for i = 1:length(info_String[:, 1])
+        if max_bonds < length(bond_dict[i])
+            max_bonds = length(bond_dict[i])
+        end
+    end
+
+    #adds bond info to an array with other info from info_String
+    #done this way because it is impossible (to me) to append multidimensional arrays
+    for atom_id = 1:length(info_String[:, 1])
+        temp_array = []
+        push!(temp_array, parse(Int64, info_String[atom_id, 1]))
+
+        if haskey(bond_dict, atom_id)
+            for k = 1:length(bond_dict[atom_id])
+                push!(temp_array, (bond_dict[atom_id][k]))
+            end
+        end
+        #needed to concatenate arrays of different sizes (adds zeros)
+        while length(temp_array) != (max_bonds + 1)
+            push!(temp_array, 0.0)
+        end
+
+        temp_array = temp_array'
+        #only starts vertical concatenation on the second loop
+        if atom_id == 1
+            unordered_MOF_info = temp_array
+        else
+            unordered_MOF_info = vcat(unordered_MOF_info, temp_array)
+        end
+    end
 
     #converts the string representations of the cartesian coords from the pdb
     #into Floats in a new array
-    info_Float64 = map(x->parse(Float64, x), info_String[:, 2:14])
+    info_Float64 = map(x->parse(Float64, x), info_String)
 
-    unordered_MOF_info[:, 2:11] = info_Float64[:, 4:13]
-    # deepcopy makes an independent version of the array
-    unordered_MOF_info = deepcopy(unordered_MOF_info)
-    #corrects atom order by comparing the cartesian coordinates of each atom in the pdb vs the framework
-    #first convert framework from frac coords to cartesian
-
-
+    #Corrects row order in pdb to match the order in the Framework
     MOF_cart_coords = (MOF.box.f_to_c * MOF.atoms.xf)'
-    #Then compare those coords to the coords from the pdb to unscramble
-    for i in 1:length(MOF_cart_coords[:, 1])
-        for j in 1:length(MOF_cart_coords[:, 1])
-            if isapprox(info_Float64[i, 1:3], MOF_cart_coords[j, 1:3]; atol = 0.001)
+    new_row = Dict{Int64, Int64}()
+    ordered_MOF_info = zeros(Int64, MOF.atoms.n_atoms, max_bonds + 1)
+    for i = 1:length(MOF_cart_coords[:, 1])
+        for j = 1:length(MOF_cart_coords[:, 1])
+            #corrects row order
+            if isapprox(info_Float64[i, 2:4], MOF_cart_coords[j, 1:3]; atol = 0.001)
                 ordered_MOF_info[j, :] = unordered_MOF_info[i, :]
+                new_row[i] = j
             end
         end
     end
-    return ordered_MOF_info
-end=#
 
+    #corrects bonds because they point to rows, and rows have changed
+    for i = 1:length(ordered_MOF_info[:, 1])
+        for j = 2:length(ordered_MOF_info[1, :])
+            if ordered_MOF_info[i,j] != 0
+                ordered_MOF_info[i,j] = new_row[ordered_MOF_info[i,j]]
+            end
+        end
+    end
+
+    return ordered_MOF_info
+end
 
 function feature_array(MOFname::String)
     #gets info from pdb file
@@ -206,13 +136,13 @@ function feature_array(MOFname::String)
 
     #creates a nice array where each row corresponds to the number of the atom
     #in the MOF and the entry is the name of the atom
-    unordered_MOF_info = extract_bonds_from_pdb(lines, atoms, MOF)
+    ordered_MOF_info = extract_bonds_from_pdb(lines, atoms, MOF)
 
     #initializes feat_array
     feat_array = zeros(Int64, MOF.atoms.n_atoms, 2 * length(atoms[:atom]))
 
     #creates Feature array
-    for i = 1:length(ordered_MOF_info[:,1])
+    for i = 1:length(ordered_MOF_info[:, 1])
         #adds one to location corresponding to atomic number for each row
         feat_array[i, Int64(ordered_MOF_info[i, 1])] = 1
 
@@ -222,10 +152,10 @@ function feature_array(MOFname::String)
             if ordered_MOF_info[i, j] == 0
                 break
             end
-            #NOTE bond added at correct position minus 1??
             feat_array[i, Int64(ordered_MOF_info[Int64(ordered_MOF_info[i, j]), 1]) + length(atoms[:atom])] += 1
         end
 
     end
+
     return feat_array
 end

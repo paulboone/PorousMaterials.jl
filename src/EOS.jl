@@ -69,12 +69,12 @@ and returns a complete `PengRobinsonFluid` data structure.
 """
 function PengRobinsonFluid(fluid::Symbol)
     df = CSV.read(joinpath(PATH_TO_DATA, "PengRobinson_fluid_props.csv"); comment="#")
-    if ! (string(fluid) in df[:fluid])
+    if ! (string(fluid) in df[!, :fluid])
         error(@sprintf("fluid %s properties not found in %sPengRobinson_fluid_props.csv", fluid, PATH_TO_DATA))
     end
-    Tc = df[df[:fluid].== string(fluid), Symbol("Tc(K)")][1]
-    Pc = df[df[:fluid].== string(fluid), Symbol("Pc(bar)")][1]
-    ω = df[df[:fluid].== string(fluid), Symbol("acentric_factor")][1]
+    Tc = df[df[!, :fluid].== string(fluid), Symbol("Tc(K)")][1]
+    Pc = df[df[!, :fluid].== string(fluid), Symbol("Pc(bar)")][1]
+    ω = df[df[!, :fluid].== string(fluid), Symbol("acentric_factor")][1]
     return PengRobinsonFluid(fluid, Tc, Pc, ω)
 end
 
@@ -148,11 +148,11 @@ and returns a complete `VdWFluid` data structure.
 """
 function VdWFluid(fluid::Symbol)
     df = CSV.read(joinpath(PATH_TO_DATA, "VdW_fluid_props.csv"); comment="#")
-    if ! (string(fluid) in df[:fluid])
+    if ! (string(fluid) in df[!, :fluid])
         error(@sprintf("Fluid %s constants not found in %sVdW_fluidops.csv", fluid, PATH_TO_DATA))
     end
-    a = df[df[:fluid].== string(fluid), Symbol("a(bar*m^6/mol^2)")][1]
-    b = df[df[:fluid].== string(fluid), Symbol("b(m^3/mol)")][1]
+    a = df[df[!, :fluid].== string(fluid), Symbol("a(bar*m^6/mol^2)")][1]
+    b = df[df[!, :fluid].== string(fluid), Symbol("b(m^3/mol)")][1]
     return VdWFluid(fluid, a, b)
 end
 

@@ -140,8 +140,8 @@ end
 # obtain a reasonable initial guess for the optimization route in fitting adsorption 
 #  models to adsorption isotherm data
 function _guess(df::DataFrame, pressure_col_name::Symbol, loading_col_name::Symbol, model::Symbol)
-    n = df[loading_col_name]
-    p = df[pressure_col_name]
+    n = df[!, loading_col_name]
+    p = df[!, pressure_col_name]
     if model == :langmuir || model == :henry
         # Henry coefficient H guess as the secant line between origin and first data point 
         #  of the adsorption isotherm
@@ -190,8 +190,8 @@ where N is the total adsorption, M is the maximum monolayer coverage, K is the L
 function fit_adsorption_isotherm(df::DataFrame, pressure_col_name::Symbol, 
                                  loading_col_name::Symbol, model::Symbol)
     sort!(df, [pressure_col_name])
-    n = df[loading_col_name]
-    p = df[pressure_col_name]
+    n = df[!, loading_col_name]
+    p = df[!, pressure_col_name]
     θ0 = _guess(df, pressure_col_name, loading_col_name, model)
 
     if model == :langmuir

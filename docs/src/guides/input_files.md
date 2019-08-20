@@ -17,6 +17,6 @@ set_tutorial_mode()
 
 Add fancy pseudo-atoms to `data/atomic_masses.csv`.
 
-#### Peng-Robinson gas parameters
+#### Peng-Robinson and Van der Waals Fluid parameters
 
-Critical temperatures and pressures and acentric factors are stored in `data/PengRobinsonGasProps.csv`.
+Critical temperatures and pressures and acentric factors are stored in `data/PengRobinson_fluid_props.csv` and `data/VdW_fluid_props.csv`.

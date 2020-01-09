@@ -84,6 +84,7 @@ include("Matter.jl")
 include("NearestImage.jl")
 include("Misc.jl")
 include("Crystal.jl")
+include("Bonds.jl")
 include("Molecules.jl")
 include("Forcefield.jl")
 include("Energetics_Util.jl")
@@ -113,14 +114,16 @@ export
     read_xyz, read_cpk_colors, read_atomic_radii, write_xyz, fit_adsorption_isotherm,
 
     # Crystal.jl
-    Framework, BondingRule, read_crystal_structure_file,
+    Framework, read_crystal_structure_file,
     remove_overlapping_atoms_and_charges, strip_numbers_from_atom_labels!,
     chemical_formula, molecular_weight, crystal_density, construct_box,
     replicate, read_atomic_masses, charged, write_cif, assign_charges,
-    is_symmetry_equal, apply_symmetry_rules, assert_P1_symmetry, infer_bonds!,
-    remove_bonds!, compare_bonds_in_framework, wrap_atoms_to_unit_cell!,
-    write_bond_information, is_bonded, default_bondingrules, has_same_sets_of_atoms_and_charges, 
-    distance, bond_sanity_check,
+    is_symmetry_equal, apply_symmetry_rules, assert_P1_symmetry, 
+    wrap_atoms_to_unit_cell!, distance, has_same_sets_of_atoms_and_charges, 
+
+    # Bonds.jl
+    BondingRule, infer_bonds!, remove_bonds!, compare_bonds_in_framework
+    bond_sanity_check, write_bond_information, is_bonded, default_bondingrules, 
 
     # Molecules.jl
     Molecule, n_atoms, set_fractional_coords!, translate_by!, outside_box,
@@ -138,7 +141,7 @@ export
     lennard_jones, vdw_energy, vdw_energy_no_PBC,
 
     # ElectrostaticEnergetics.jl
-    electrostatic_potential, electrostatic_potential_energy, precompute_kvec_wts,
+    electrostatic_potential_energy, precompute_kvec_wts,
     setup_Ewald_sum, total, Eikr, total_electrostatic_potential_energy,
 
     # MChelpers.jl

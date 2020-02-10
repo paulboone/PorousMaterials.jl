@@ -568,13 +568,17 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                                 charged_molecules, charged_framework)
 
                 # Metropolis Hastings Acceptance for Insertion
-                if rand() < fugacity * framework.box.Ω / (length(molecules) * KB *
-                        temperature) * exp(-sum(energy) / temperature)
+                probability = fugacity * framework.box.Ω / (length(molecules) * KB *
+                              temperature) * exp(-sum(energy) / temperature)
+                @printf("ins: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
+                if rand() < probability
+                    @printf("accepted (ins)\n")
                     # accept the move, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
 
                     system_energy += energy
                 else
+                    @printf("rejected\n")
                     # reject the move, remove the inserted molecule
                     pop!(molecules)
                 end
@@ -588,14 +592,21 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                           charged_molecules, charged_framework)
 
                 # Metropolis Hastings Acceptance for Deletion
-                if rand() < length(molecules) * KB * temperature / (fugacity *
-                        framework.box.Ω) * exp(sum(energy) / temperature)
+
+
+                probability = length(molecules) * KB * temperature / (fugacity *
+                              framework.box.Ω) * exp(sum(energy) / temperature)
+                @printf("del: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
+                if rand() < probability
+                    @printf("accepted (del)\n")
                     # accept the deletion, delete molecule, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
 
                     delete_molecule!(molecule_id, molecules)
 
                     system_energy -= energy
+                else
+                    @printf("rejected\n")
                 end
             elseif (which_move == TRANSLATION) && (length(molecules) != 0)
                 # propose which molecule whose coordinates we should perturb

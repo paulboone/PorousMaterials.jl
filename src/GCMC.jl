@@ -144,20 +144,20 @@ differ significantly from the previous pressure), we can reduce the number of bu
 required to reach equilibrium in the Monte Carlo simulation. Also see
 [`adsorption_isotherm`](@ref) which runs the μVT simulation at each pressure in parallel.
 """
-function stepwise_adsorption_isotherm(framework::Framework, 
+function stepwise_adsorption_isotherm(framework::Framework,
                                       molecule::Molecule,
-                                      temperature::Float64, 
-                                      pressures::Array{Float64, 1}, 
+                                      temperature::Float64,
+                                      pressures::Array{Float64, 1},
                                       ljforcefield::LJForceField;
-                                      n_burn_cycles::Int=5000, n_sample_cycles::Int=5000, 
-                                      sample_frequency::Int=1, verbose::Bool=true, 
+                                      n_burn_cycles::Int=5000, n_sample_cycles::Int=5000,
+                                      sample_frequency::Int=1, verbose::Bool=true,
                                       ewald_precision::Float64=1e-6, eos::Symbol=:ideal,
-                                      load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(), 
-                                      checkpoint_frequency::Int=50, write_checkpoints::Bool=false, 
-                                      show_progress_bar::Bool=false, 
-                                      write_adsorbate_snapshots::Bool=false, 
+                                      load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
+                                      checkpoint_frequency::Int=50, write_checkpoints::Bool=false,
+                                      show_progress_bar::Bool=false,
+                                      write_adsorbate_snapshots::Bool=false,
                                       snapshot_frequency::Int=1, calculate_density_grid::Bool=false,
-                                      density_grid_dx::Float64=1.0, 
+                                      density_grid_dx::Float64=1.0,
                                       density_grid_species::Union{Nothing, Symbol}=nothing,
                                       filename_comment::AbstractString="")
 
@@ -193,8 +193,8 @@ end
     results = adsorption_isotherm(framework, molecule, temperature, pressures,
                                   ljforcefield; n_sample_cycles=5000,
                                   n_burn_cycles=5000, sample_frequency=1,
-                                  verbose=true, ewald_precision=1e-6, eos=:ideal, 
-                                  load_checkpoint_file=false, checkpoint=Dict(), 
+                                  verbose=true, ewald_precision=1e-6, eos=:ideal,
+                                  load_checkpoint_file=false, checkpoint=Dict(),
                                   write_checkpoints=false, checkpoint_frequency=50,
                                   write_adsorbate_snapshots=false,
                                   snapshot_frequency=1, calculate_density_grid=false,
@@ -207,20 +207,20 @@ The only exception is that we pass an array of pressures. To give Julia access t
 cores, run your script as `julia -p 4 mysim.jl` to allocate e.g. four cores. See
 [Parallel Computing](https://docs.julialang.org/en/stable/manual/parallel-computing/#Parallel-Computing-1).
 """
-function adsorption_isotherm(framework::Framework, 
+function adsorption_isotherm(framework::Framework,
                              molecule::Molecule,
                              temperature::Float64,
                              pressures::Array{Float64, 1},
                              ljforcefield::LJForceField;
-                             n_burn_cycles::Int=5000, n_sample_cycles::Int=5000, 
-                             sample_frequency::Int=1, verbose::Bool=true, 
+                             n_burn_cycles::Int=5000, n_sample_cycles::Int=5000,
+                             sample_frequency::Int=1, verbose::Bool=true,
                              ewald_precision::Float64=1e-6, eos::Symbol=:ideal,
-                             load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(), 
-                             checkpoint_frequency::Int=50, write_checkpoints::Bool=false, 
-                             show_progress_bar::Bool=false, 
-                             write_adsorbate_snapshots::Bool=false, 
+                             load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
+                             checkpoint_frequency::Int=50, write_checkpoints::Bool=false,
+                             show_progress_bar::Bool=false,
+                             write_adsorbate_snapshots::Bool=false,
                              snapshot_frequency::Int=1, calculate_density_grid::Bool=false,
-                             density_grid_dx::Float64=1.0, 
+                             density_grid_dx::Float64=1.0,
                              density_grid_species::Union{Nothing, Symbol}=nothing,
                              filename_comment::AbstractString="")
 
@@ -321,7 +321,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
     checkpoint_frequency::Int=100, write_checkpoints::Bool=false,
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
-    calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0, 
+    calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="")
 
     # simulation only works if framework is in P1
@@ -399,7 +399,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     framework = replicate(framework, repfactors)
     # adjust fractional coords of molecule according to *replicated* framework
     set_fractional_coords!(molecule, framework.box)
-    
+
     ###
     #   Density grid for adsorbate
     ###
@@ -410,12 +410,12 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             density_grid_species = molecule.atoms.species[1]
         else
             # don't proceed if we don't know which atom to keep track of!
-            error(@sprintf("Passed `calculate_density_grid=true` but adsorbate %s has 
+            error(@sprintf("Passed `calculate_density_grid=true` but adsorbate %s has
                 %d atoms. Must specify `density_grid_species` to keep track of during the
                 density grid updates.\n", molecule.species, molecule.atoms.n_atoms))
         end
     end
-    
+
     # Initialize a density grid based on the *simulation box* (not framework box passed in) and the passed in density_grid_dx
     # Calculate `n_pts`, number of voxels in grid, based on the sim box and specified voxel spacing
     n_pts = (0, 0, 0) # don't store a huge grid if we aren't tracking a density grid
@@ -426,7 +426,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
     if verbose
         @printf("\tFramework replicated (%d,%d,%d) for short-range cutoff of %f Å\n",
-                repfactors[1], repfactors[2], repfactors[3], 
+                repfactors[1], repfactors[2], repfactors[3],
                 sqrt(ljforcefield.cutoffradius_squared))
         println("\tFramework crystal density: ", crystal_density(framework))
         println("\tFramework chemical formula: ", chemical_formula(framework))
@@ -756,7 +756,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         end # write checkpoint
     end # outer cycles
     # finished MC moves at this point.
-    
+
     # close snapshot xyz file
     close(xyz_snapshot_file)
 

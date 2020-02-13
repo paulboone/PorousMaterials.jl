@@ -1,5 +1,8 @@
 import Base: +, /
 
+import DelimitedFiles: writedlm
+
+
 const KB = 1.38064852e7 # Boltmann constant (Pa-m3/K --> Pa-A3/K)
 
 # define Markov chain proposals here.
@@ -549,223 +552,253 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     #   for each outer cycle, peform max(20, # molecules in the system) MC proposals.
     markov_chain_time = (checkpoint != Dict()) ? checkpoint["markov_chain_time"] : 0
     outer_cycle_start = (checkpoint != Dict()) ? checkpoint["outer_cycle"] + 1 : 1
-    for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
-        if show_progress_bar
-            next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
-        end
-        for inner_cycle = 1:max(20, length(molecules))
-            markov_chain_time += 1
 
-            # choose proposed move randomly; keep track of proposals
-            which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
-            markov_counts.n_proposed[which_move] += 1
+    # @printf(molecule_.species)
+    max_trials = 10000
+    moleculename = molecule_.species
+    trials = zeros(Float64, max_trials, 6)
+    for i = 1:max_trials
+        insert_molecule!(molecules, framework.box, molecule)
+        energy = potential_energy(length(molecules), molecules, framework,
+                                  ljforcefield, eparams, eikr_gh, eikr_gg,
+                                  charged_molecules, charged_framework)
 
-            if which_move == INSERTION
-                insert_molecule!(molecules, framework.box, molecule)
+        ins_probability = fugacity * framework.box.Ω / (length(molecules) * KB *
+                      temperature) * exp(-sum(energy) / temperature)
 
-                energy = potential_energy(length(molecules), molecules, framework,
-                                                ljforcefield, eparams, eikr_gh, eikr_gg,
-                                                charged_molecules, charged_framework)
+        del_probability = length(molecules) * KB * temperature / (fugacity *
+                      framework.box.Ω) * exp(sum(energy) / temperature)
+                      # molecules[end].xf_com...
 
-                # Metropolis Hastings Acceptance for Insertion
-                probability = fugacity * framework.box.Ω / (length(molecules) * KB *
-                              temperature) * exp(-sum(energy) / temperature)
-                @printf("ins: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
-                if rand() < probability
-                    @printf("accepted (ins)\n")
-                    # accept the move, adjust current_energy
-                    markov_counts.n_accepted[which_move] += 1
+        # @printf("%d", i)
+        # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_probability=%05.3f, del_probability=%05.3f\n", sum(system_energy), sum(energy), ins_probability, del_probability)
+        trials[i, :] = [sum(energy), ins_probability, del_probability, molecules[end].xf_com...]
+        pop!(molecules)
+    end
 
-                    system_energy += energy
-                else
-                    @printf("rejected\n")
-                    # reject the move, remove the inserted molecule
-                    pop!(molecules)
-                end
-            elseif (which_move == DELETION) && (length(molecules) != 0)
-                # propose which molecule to delete
-                molecule_id = rand(1:length(molecules))
-
-                # compute the potential energy of the molecule we propose to delete
-                energy = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                          eparams, eikr_gh, eikr_gg,
-                                          charged_molecules, charged_framework)
-
-                # Metropolis Hastings Acceptance for Deletion
+    open("trial_insertions_$(moleculename)_$(max_trials).csv", "w") do f
+        @printf("\n OUTPUTTING trial_insertions.csv ~~ \n")
+        writedlm(f, trials)
+    end
 
 
-                probability = length(molecules) * KB * temperature / (fugacity *
-                              framework.box.Ω) * exp(sum(energy) / temperature)
-                @printf("del: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
-                if rand() < probability
-                    @printf("accepted (del)\n")
-                    # accept the deletion, delete molecule, adjust current_energy
-                    markov_counts.n_accepted[which_move] += 1
-
-                    delete_molecule!(molecule_id, molecules)
-
-                    system_energy -= energy
-                else
-                    @printf("rejected\n")
-                end
-            elseif (which_move == TRANSLATION) && (length(molecules) != 0)
-                # propose which molecule whose coordinates we should perturb
-                molecule_id = rand(1:length(molecules))
-
-                # energy of the molecule before it was translated
-                energy_old = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                          eparams, eikr_gh, eikr_gg,
-                                          charged_molecules, charged_framework)
-
-                old_molecule = translate_molecule!(molecules[molecule_id], framework.box)
-
-                # energy of the molecule after it is translated
-                energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                              eparams, eikr_gh, eikr_gg,
-                                              charged_molecules, charged_framework)
-
-                # Metropolis Hastings Acceptance for translation
-                if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
-                    # accept the move, adjust current energy
-                    markov_counts.n_accepted[which_move] += 1
-
-                    system_energy += energy_new - energy_old
-                else
-                    # reject the move, put back the old molecule
-                    molecules[molecule_id] = deepcopy(old_molecule)
-                end
-            elseif (which_move == ROTATION) && (length(molecules) != 0)
-                # propose which molecule to rotate
-                molecule_id = rand(1:length(molecules))
-
-                # energy of the molecule before we rotate it
-                energy_old = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                              eparams, eikr_gh, eikr_gg,
-                                              charged_molecules, charged_framework)
-
-                # store old molecule to restore old position in case move is rejected
-                old_molecule = deepcopy(molecules[molecule_id])
-
-                # conduct a random rotation
-                rotate!(molecules[molecule_id], framework.box)
-
-                # energy of the molecule after it is translated
-                energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                              eparams, eikr_gh, eikr_gg,
-                                              charged_molecules, charged_framework)
-
-                # Metropolis Hastings Acceptance for rotation
-                if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
-                    # accept the move, adjust current energy
-                    markov_counts.n_accepted[which_move] += 1
-
-                    system_energy += energy_new - energy_old
-                else
-                    # reject the move, put back the old molecule
-                    molecules[molecule_id] = deepcopy(old_molecule)
-                end
-            elseif (which_move == REINSERTION) && (length(molecules) != 0)
-                # propose which molecule to re-insert
-                molecule_id = rand(1:length(molecules))
-
-                # compute the potential energy of the molecule we propose to re-insert
-                energy_old = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                             eparams, eikr_gh, eikr_gg,
-                                             charged_molecules, charged_framework)
-
-                # reinsert molecule; store old configuration of the molecule in case proposal is rejected
-                old_molecule = reinsert_molecule!(molecules[molecule_id], framework.box)
-
-                # compute the potential energy of the molecule in its new configuraiton
-                energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
-                                              eparams, eikr_gh, eikr_gg,
-                                              charged_molecules, charged_framework)
-
-                # Metropolis Hastings Acceptance for reinsertion
-                if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
-                    # accept the move, adjust current energy
-                    markov_counts.n_accepted[which_move] += 1
-
-                    system_energy += energy_new - energy_old
-                else
-                    # reject the move, put back old molecule
-                    molecules[molecule_id] = deepcopy(old_molecule)
-                end
-            end # which move the code executes
-
-            # if we've done all burn cycles, take samples for statistics
-            if outer_cycle > n_burn_cycles
-                if markov_chain_time % sample_frequency == 0
-                    gcmc_stats[current_block].n_samples += 1
-
-                    gcmc_stats[current_block].n += length(molecules)
-                    gcmc_stats[current_block].n² += length(molecules) ^ 2
-
-                    gcmc_stats[current_block].U += system_energy
-                    gcmc_stats[current_block].U² += square(system_energy)
-
-                    gcmc_stats[current_block].Un += sum(system_energy) * length(molecules)
-                end
-            end # sampling
-        end # inner cycles
-
-        # print block statistics / increment block
-        if (outer_cycle > n_burn_cycles) && (current_block != N_BLOCKS) && (
-            (outer_cycle - n_burn_cycles) % N_CYCLES_PER_BLOCK == 0)
-            # move onto new block unless current_block is N_BLOCKS;
-            # then just keep adding stats to the last block.
-            # this only occurs if sample_cycles not divisible by N_BLOCKS
-            # print GCMC stats later and do not increment block if we are in last block.
-            # print statistics for this block
-            if verbose
-                printstyled(@sprintf("\tBlock  %d/%d statistics:\n", current_block, N_BLOCKS); color=:yellow)
-                print(gcmc_stats[current_block])
-            end
-            current_block += 1
-        end
-        # print the last cycle in the last block
-        if outer_cycle == (n_sample_cycles + n_burn_cycles)
-            if verbose
-                printstyled(@sprintf("\tBlock  %d/%d statistics:\n", current_block, N_BLOCKS); color=:yellow)
-                print(gcmc_stats[current_block])
-            end
-        end
-
-        # snapshot cycle
-        if (outer_cycle > n_burn_cycles) && (outer_cycle % snapshot_frequency == 0)
-            if write_adsorbate_snapshots
-                # have a '\n' for every new set of atoms, leaves no '\n' at EOF
-                if num_snapshots > 0
-                    @printf(xyz_snapshot_file, "\n")
-                end
-                write_xyz(framework.box, molecules, xyz_snapshot_file)
-            end
-            if calculate_density_grid
-                update_density!(density_grid, molecules, density_grid_species)
-            end
-            num_snapshots += 1
-        end
-
-        if write_checkpoints && (outer_cycle % checkpoint_frequency == 0)
-            checkpoint = Dict("outer_cycle" => outer_cycle,
-                              "molecules" => deepcopy(molecules),
-                              "system_energy" => system_energy,
-                              "current_block" => current_block,
-                              "gcmc_stats" => gcmc_stats,
-                              "markov_counts" => markov_counts,
-                              "markov_chain_time" => markov_chain_time,
-                              "time" => time() - start_time # TODO not quite
-                              )
-            # bring back fractional coords to Cartesian.
-            for m in checkpoint["molecules"]
-                set_fractional_coords_to_unit_cube!(m, framework.box)
-            end
-            if ! isdir(joinpath(PATH_TO_DATA, "gcmc_checkpoints"))
-                mkdir(joinpath(PATH_TO_DATA, "gcmc_checkpoints"))
-            end
-            @save checkpoint_filename checkpoint
-        end # write checkpoint
-    end # outer cycles
+    # for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
+    #     if show_progress_bar
+    #         next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
+    #     end
+    #     for inner_cycle = 1:max(20, length(molecules))
+    #         markov_chain_time += 1
+    #
+    #         # choose proposed move randomly; keep track of proposals
+    #         which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
+    #         markov_counts.n_proposed[which_move] += 1
+    #
+    #         if which_move == INSERTION
+    #             insert_molecule!(molecules, framework.box, molecule)
+    #
+    #             energy = potential_energy(length(molecules), molecules, framework,
+    #                                             ljforcefield, eparams, eikr_gh, eikr_gg,
+    #                                             charged_molecules, charged_framework)
+    #
+    #             # Metropolis Hastings Acceptance for Insertion
+    #             probability = fugacity * framework.box.Ω / (length(molecules) * KB *
+    #                           temperature) * exp(-sum(energy) / temperature)
+    #             @printf("ins: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
+    #             if rand() < probability
+    #                 @printf("accepted (ins)\n")
+    #                 # accept the move, adjust current_energy
+    #                 markov_counts.n_accepted[which_move] += 1
+    #
+    #                 system_energy += energy
+    #             else
+    #                 @printf("rejected\n")
+    #                 # reject the move, remove the inserted molecule
+    #                 pop!(molecules)
+    #             end
+    #         elseif (which_move == DELETION) && (length(molecules) != 0)
+    #             # propose which molecule to delete
+    #             molecule_id = rand(1:length(molecules))
+    #
+    #             # compute the potential energy of the molecule we propose to delete
+    #             energy = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                       eparams, eikr_gh, eikr_gg,
+    #                                       charged_molecules, charged_framework)
+    #
+    #             # Metropolis Hastings Acceptance for Deletion
+    #
+    #
+    #             probability = length(molecules) * KB * temperature / (fugacity *
+    #                           framework.box.Ω) * exp(sum(energy) / temperature)
+    #             @printf("del: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
+    #             if rand() < probability
+    #                 @printf("accepted (del)\n")
+    #                 # accept the deletion, delete molecule, adjust current_energy
+    #                 markov_counts.n_accepted[which_move] += 1
+    #
+    #                 delete_molecule!(molecule_id, molecules)
+    #
+    #                 system_energy -= energy
+    #             else
+    #                 @printf("rejected\n")
+    #             end
+    #         elseif (which_move == TRANSLATION) && (length(molecules) != 0)
+    #             # propose which molecule whose coordinates we should perturb
+    #             molecule_id = rand(1:length(molecules))
+    #
+    #             # energy of the molecule before it was translated
+    #             energy_old = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                       eparams, eikr_gh, eikr_gg,
+    #                                       charged_molecules, charged_framework)
+    #
+    #             old_molecule = translate_molecule!(molecules[molecule_id], framework.box)
+    #
+    #             # energy of the molecule after it is translated
+    #             energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                           eparams, eikr_gh, eikr_gg,
+    #                                           charged_molecules, charged_framework)
+    #
+    #             # Metropolis Hastings Acceptance for translation
+    #             if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+    #                 # accept the move, adjust current energy
+    #                 markov_counts.n_accepted[which_move] += 1
+    #
+    #                 system_energy += energy_new - energy_old
+    #             else
+    #                 # reject the move, put back the old molecule
+    #                 molecules[molecule_id] = deepcopy(old_molecule)
+    #             end
+    #         elseif (which_move == ROTATION) && (length(molecules) != 0)
+    #             # propose which molecule to rotate
+    #             molecule_id = rand(1:length(molecules))
+    #
+    #             # energy of the molecule before we rotate it
+    #             energy_old = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                           eparams, eikr_gh, eikr_gg,
+    #                                           charged_molecules, charged_framework)
+    #
+    #             # store old molecule to restore old position in case move is rejected
+    #             old_molecule = deepcopy(molecules[molecule_id])
+    #
+    #             # conduct a random rotation
+    #             rotate!(molecules[molecule_id], framework.box)
+    #
+    #             # energy of the molecule after it is translated
+    #             energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                           eparams, eikr_gh, eikr_gg,
+    #                                           charged_molecules, charged_framework)
+    #
+    #             # Metropolis Hastings Acceptance for rotation
+    #             if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+    #                 # accept the move, adjust current energy
+    #                 markov_counts.n_accepted[which_move] += 1
+    #
+    #                 system_energy += energy_new - energy_old
+    #             else
+    #                 # reject the move, put back the old molecule
+    #                 molecules[molecule_id] = deepcopy(old_molecule)
+    #             end
+    #         elseif (which_move == REINSERTION) && (length(molecules) != 0)
+    #             # propose which molecule to re-insert
+    #             molecule_id = rand(1:length(molecules))
+    #
+    #             # compute the potential energy of the molecule we propose to re-insert
+    #             energy_old = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                          eparams, eikr_gh, eikr_gg,
+    #                                          charged_molecules, charged_framework)
+    #
+    #             # reinsert molecule; store old configuration of the molecule in case proposal is rejected
+    #             old_molecule = reinsert_molecule!(molecules[molecule_id], framework.box)
+    #
+    #             # compute the potential energy of the molecule in its new configuraiton
+    #             energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
+    #                                           eparams, eikr_gh, eikr_gg,
+    #                                           charged_molecules, charged_framework)
+    #
+    #             # Metropolis Hastings Acceptance for reinsertion
+    #             if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+    #                 # accept the move, adjust current energy
+    #                 markov_counts.n_accepted[which_move] += 1
+    #
+    #                 system_energy += energy_new - energy_old
+    #             else
+    #                 # reject the move, put back old molecule
+    #                 molecules[molecule_id] = deepcopy(old_molecule)
+    #             end
+    #         end # which move the code executes
+    #
+    #         # if we've done all burn cycles, take samples for statistics
+    #         if outer_cycle > n_burn_cycles
+    #             if markov_chain_time % sample_frequency == 0
+    #                 gcmc_stats[current_block].n_samples += 1
+    #
+    #                 gcmc_stats[current_block].n += length(molecules)
+    #                 gcmc_stats[current_block].n² += length(molecules) ^ 2
+    #
+    #                 gcmc_stats[current_block].U += system_energy
+    #                 gcmc_stats[current_block].U² += square(system_energy)
+    #
+    #                 gcmc_stats[current_block].Un += sum(system_energy) * length(molecules)
+    #             end
+    #         end # sampling
+    #     end # inner cycles
+    #
+    #     # print block statistics / increment block
+    #     if (outer_cycle > n_burn_cycles) && (current_block != N_BLOCKS) && (
+    #         (outer_cycle - n_burn_cycles) % N_CYCLES_PER_BLOCK == 0)
+    #         # move onto new block unless current_block is N_BLOCKS;
+    #         # then just keep adding stats to the last block.
+    #         # this only occurs if sample_cycles not divisible by N_BLOCKS
+    #         # print GCMC stats later and do not increment block if we are in last block.
+    #         # print statistics for this block
+    #         if verbose
+    #             printstyled(@sprintf("\tBlock  %d/%d statistics:\n", current_block, N_BLOCKS); color=:yellow)
+    #             print(gcmc_stats[current_block])
+    #         end
+    #         current_block += 1
+    #     end
+    #     # print the last cycle in the last block
+    #     if outer_cycle == (n_sample_cycles + n_burn_cycles)
+    #         if verbose
+    #             printstyled(@sprintf("\tBlock  %d/%d statistics:\n", current_block, N_BLOCKS); color=:yellow)
+    #             print(gcmc_stats[current_block])
+    #         end
+    #     end
+    #
+    #     # snapshot cycle
+    #     if (outer_cycle > n_burn_cycles) && (outer_cycle % snapshot_frequency == 0)
+    #         if write_adsorbate_snapshots
+    #             # have a '\n' for every new set of atoms, leaves no '\n' at EOF
+    #             if num_snapshots > 0
+    #                 @printf(xyz_snapshot_file, "\n")
+    #             end
+    #             write_xyz(framework.box, molecules, xyz_snapshot_file)
+    #         end
+    #         if calculate_density_grid
+    #             update_density!(density_grid, molecules, density_grid_species)
+    #         end
+    #         num_snapshots += 1
+    #     end
+    #
+    #     if write_checkpoints && (outer_cycle % checkpoint_frequency == 0)
+    #         checkpoint = Dict("outer_cycle" => outer_cycle,
+    #                           "molecules" => deepcopy(molecules),
+    #                           "system_energy" => system_energy,
+    #                           "current_block" => current_block,
+    #                           "gcmc_stats" => gcmc_stats,
+    #                           "markov_counts" => markov_counts,
+    #                           "markov_chain_time" => markov_chain_time,
+    #                           "time" => time() - start_time # TODO not quite
+    #                           )
+    #         # bring back fractional coords to Cartesian.
+    #         for m in checkpoint["molecules"]
+    #             set_fractional_coords_to_unit_cube!(m, framework.box)
+    #         end
+    #         if ! isdir(joinpath(PATH_TO_DATA, "gcmc_checkpoints"))
+    #             mkdir(joinpath(PATH_TO_DATA, "gcmc_checkpoints"))
+    #         end
+    #         @save checkpoint_filename checkpoint
+    #     end # write checkpoint
+    # end # outer cycles
     # finished MC moves at this point.
 
     # close snapshot xyz file

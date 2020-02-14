@@ -553,33 +553,93 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     markov_chain_time = (checkpoint != Dict()) ? checkpoint["markov_chain_time"] : 0
     outer_cycle_start = (checkpoint != Dict()) ? checkpoint["outer_cycle"] + 1 : 1
 
-    # @printf(molecule_.species)
-    max_trials = 10000
+
+    max_adsorbates = 100
+    max_trials = 100
     moleculename = molecule_.species
-    trials = zeros(Float64, max_trials, 6)
-    for i = 1:max_trials
-        insert_molecule!(molecules, framework.box, molecule)
-        energy = potential_energy(length(molecules), molecules, framework,
-                                  ljforcefield, eparams, eikr_gh, eikr_gg,
-                                  charged_molecules, charged_framework)
+    adsorbates = zeros(Float64, max_adsorbates, 12)
+    num_adsorbates = 0
+    kprob = fugacity * framework.box.Ω / (KB * temperature)
 
-        ins_probability = fugacity * framework.box.Ω / (length(molecules) * KB *
-                      temperature) * exp(-sum(energy) / temperature)
+    for j = 1:max_adsorbates
+        trials = zeros(Float64, max_trials, 12)
+        best_molecule = nothing
+        best_ins_prob = 0.0
+        best_molecule_summary = nothing
+        best_energy = nothing
+        for i = 1:max_trials
+            insert_molecule!(molecules, framework.box, molecule)
+            energy = potential_energy(length(molecules), molecules, framework,
+                                      ljforcefield, eparams, eikr_gh, eikr_gg,
+                                      charged_molecules, charged_framework)
 
-        del_probability = length(molecules) * KB * temperature / (fugacity *
-                      framework.box.Ω) * exp(sum(energy) / temperature)
-                      # molecules[end].xf_com...
+            ins_prob =  kprob * exp(-sum(energy) / temperature) / length(molecules)
+            ins_prob_empty =  kprob * exp(-sum(energy.guest_host) / temperature) / 1
 
-        # @printf("%d", i)
-        # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_probability=%05.3f, del_probability=%05.3f\n", sum(system_energy), sum(energy), ins_probability, del_probability)
-        trials[i, :] = [sum(energy), ins_probability, del_probability, molecules[end].xf_com...]
-        pop!(molecules)
+            # @printf("%d", i)
+            # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_prob=%05.3f, del_prob=%05.3f\n", sum(system_energy), sum(energy), ins_prob, del_prob)
+            molecule_summary = [j, 0.0, 0.0, 0.0, 0.0,
+                            ins_prob, ins_prob_empty, 0.0, 0.0, molecules[end].xf_com...]
+            trials[i, :] = molecule_summary
+
+            molecule = pop!(molecules)
+            if ins_prob > best_ins_prob
+                best_molecule = molecule
+                best_ins_prob = ins_prob
+                best_molecule_summary = molecule_summary
+                best_energy = energy
+            end
+        end
+        println("$(j): best insert probability = $(best_ins_prob)")
+
+        open("trial_insertions_$(moleculename)_$(max_trials)_$(j).csv", "w") do f
+            @printf("OUTPUTTING trial_insertions.csv ~~ \n")
+            writedlm(f, trials)
+        end
+
+        if best_ins_prob > 1.0
+            num_adsorbates += 1
+            push!(molecules, best_molecule)
+            markov_counts.n_accepted[INSERTION] += 1
+            # println("system_energy [pre]: ", system_energy)
+            # println("best_energy: ", best_energy)
+            system_energy += best_energy
+            adsorbates[j, :] = best_molecule_summary
+            # println("system_energy [post]: ", system_energy)
+
+        else
+            println("Best insertion probability < 1.0 ~~")
+            break
+        end
+    end
+    println("Calculating end ins% / del%")
+
+    for i = 1:num_adsorbates
+        energy = potential_energy(i, molecules, framework, ljforcefield, eparams, eikr_gh,
+                                  eikr_gg, charged_molecules, charged_framework)
+
+        energy_empty = potential_energy(1, [molecules[i]], framework, ljforcefield, eparams, eikr_gh,
+                                        eikr_gg, charged_molecules, charged_framework)
+
+        println("energy_empty.guest_host: ", energy_empty)
+        ins_prob_empty = kprob * exp(-sum(energy_empty) / temperature) / 1
+        ins_prob_full =  kprob * exp(-sum(energy) / temperature) / length(molecules)
+
+        println("energy: ", energy)
+        println("ins_prob_full: ", ins_prob_full)
+
+        adsorbates[i, 8:9] = [ins_prob_empty, ins_prob_full]
+        adsorbates[i, 2:5]= [energy.guest_host.vdw, energy.guest_host.coulomb,
+                             energy.guest_guest.vdw, energy.guest_guest.coulomb]
+
     end
 
-    open("trial_insertions_$(moleculename)_$(max_trials).csv", "w") do f
-        @printf("\n OUTPUTTING trial_insertions.csv ~~ \n")
-        writedlm(f, trials)
+    open("inserted_adsorbates_$(moleculename).csv", "w") do f
+        writedlm(f, adsorbates)
     end
+
+
+
 
 
     # for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
@@ -821,6 +881,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     end
 
     # compute total energy, compare to `current_energy*` variables where were incremented
+    println("molecules: ", molecules)
     system_energy_end = SystemPotentialEnergy()
     system_energy_end.guest_host.vdw = total_vdw_energy(framework, molecules, ljforcefield)
     system_energy_end.guest_guest.vdw = total_vdw_energy(molecules, ljforcefield, framework.box)
@@ -831,6 +892,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
     # see Energetics_Util.jl for this function, overloaded isapprox to print mismatch
     if ! isapprox(system_energy, system_energy_end, verbose=true, atol=0.01)
+        println(system_energy)
+        println(system_energy_end)
         error("energy incremented improperly during simulation...")
     end
 

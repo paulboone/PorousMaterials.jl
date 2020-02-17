@@ -639,6 +639,22 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     end
 
 
+    mol_probs = zeros(Float64, num_adsorbates, num_adsorbates)
+    for i = 1:num_adsorbates
+        partial_molecules = molecules[1:i]
+        for j = 1:i
+            energy = potential_energy(j, partial_molecules, framework, ljforcefield, eparams, eikr_gh,
+                                      eikr_gg, charged_molecules, charged_framework)
+
+            mol_probs[i,j] = kprob * exp(-sum(energy) / temperature) / length(partial_molecules)
+        end
+    end
+
+    open("adsorbate_prob_by_molecule_num_$(moleculename).csv", "w") do f
+        writedlm(f, mol_probs)
+    end
+
+
 
 
 

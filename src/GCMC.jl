@@ -1,4 +1,5 @@
 import Base: +, /
+import DelimitedFiles: writedlm
 
 const KB = 1.38064852e7 # Boltmann constant (Pa-m3/K --> Pa-A3/K)
 
@@ -549,6 +550,11 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     #   for each outer cycle, peform max(20, # molecules in the system) MC proposals.
     markov_chain_time = (checkpoint != Dict()) ? checkpoint["markov_chain_time"] : 0
     outer_cycle_start = (checkpoint != Dict()) ? checkpoint["outer_cycle"] + 1 : 1
+
+    moleculename = molecule_.species
+    energy_log = open("energy_log_$(moleculename).txt", "w")
+
+
     for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
         if show_progress_bar
             next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
@@ -693,6 +699,15 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 end
             end # which move the code executes
 
+
+            writedlm(energy_log, [
+                        inner_cycle, size(molecules, 1),
+                        system_energy.guest_host.vdw,  system_energy.guest_host.coulomb,
+                        system_energy.guest_guest.vdw, system_energy.guest_guest.coulomb
+                    ]')
+
+
+
             # if we've done all burn cycles, take samples for statistics
             if outer_cycle > n_burn_cycles
                 if markov_chain_time % sample_frequency == 0
@@ -766,6 +781,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             @save checkpoint_filename checkpoint
         end # write checkpoint
     end # outer cycles
+
+    close(energy_log)
     # finished MC moves at this point.
 
     # close snapshot xyz file

@@ -45,7 +45,7 @@ function set_default_file_paths(;print_paths::Bool=true)
     global PATH_TO_FORCEFIELDS = joinpath(PATH_TO_DATA, "forcefields")
     global PATH_TO_MOLECULES = joinpath(PATH_TO_DATA, "molecules")
     global PATH_TO_GRIDS = joinpath(PATH_TO_DATA, "grids")
-    
+
     if print_paths
         print_file_paths()
     end
@@ -120,7 +120,7 @@ export
     replicate, read_atomic_masses, charged, write_cif, assign_charges,
     is_symmetry_equal, apply_symmetry_rules, assert_P1_symmetry, infer_bonds!,
     remove_bonds!, compare_bonds_in_framework, wrap_atoms_to_unit_cell!,
-    write_bond_information, is_bonded, default_bondingrules, has_same_sets_of_atoms_and_charges, 
+    write_bond_information, is_bonded, default_bondingrules, has_same_sets_of_atoms_and_charges,
     distance, bond_sanity_check,
 
     # FrameworkOperations.jl
@@ -157,7 +157,7 @@ export
     calculate_properties, PengRobinsonFluid, VdWFluid,
 
     # GCMC.jl
-    gcmc_simulation, adsorption_isotherm, stepwise_adsorption_isotherm,
+    gcmc_simulation, gcmc_trials, adsorption_isotherm, stepwise_adsorption_isotherm,
     gcmc_result_savename, GCMCstats, MarkovCounts,
 
     # Henry.jl

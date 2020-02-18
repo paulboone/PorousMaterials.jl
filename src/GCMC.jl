@@ -323,7 +323,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     checkpoint_frequency::Int=100, write_checkpoints::Bool=false,
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
     calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
-    density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="")
+    density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
+    batch_moves=false)
 
     # simulation only works if framework is in P1
     assert_P1_symmetry(framework)
@@ -510,14 +511,14 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     # define probabilty of proposing each type of MC move here.
     mc_proposal_probabilities = [0.0 for p = 1:N_PROPOSAL_TYPES]
     # set defaults
-    mc_proposal_probabilities[INSERTION] = 0.35
+    mc_proposal_probabilities[INSERTION] = 0.25
     mc_proposal_probabilities[DELETION] = mc_proposal_probabilities[INSERTION] # must be equal
-    mc_proposal_probabilities[REINSERTION] = 0.05
+    mc_proposal_probabilities[REINSERTION] = 0.00
     if rotatable(molecule)
-        mc_proposal_probabilities[TRANSLATION] = 0.125
-        mc_proposal_probabilities[ROTATION] = 0.125
-    else
         mc_proposal_probabilities[TRANSLATION] = 0.25
+        mc_proposal_probabilities[ROTATION] = 0.25
+    else
+        mc_proposal_probabilities[TRANSLATION] = 0.50
         mc_proposal_probabilities[ROTATION] = 0.0
     end
     mc_proposal_probabilities /= sum(mc_proposal_probabilities) # normalize
@@ -562,16 +563,20 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         for inner_cycle = 1:n_subcycles
             markov_chain_time += 1
 
-            if (inner_cycle - 1) ÷ (n_subcycles/4) == 0
-                which_move = INSERTION
-            elseif (inner_cycle - 1) ÷ (n_subcycles/4) == 2
-                which_move = DELETION
-            else
-                if rand(1:2,1) == [1]
-                    which_move = TRANSLATION
+            if batch_moves
+                if (inner_cycle - 1) ÷ (n_subcycles/4) == 0
+                    which_move = INSERTION
+                elseif (inner_cycle - 1) ÷ (n_subcycles/4) == 2
+                    which_move = DELETION
                 else
-                    which_move = ROTATION
+                    if rand(1:2,1) == [1]
+                        which_move = TRANSLATION
+                    else
+                        which_move = ROTATION
+                    end
                 end
+            else
+                which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
             end
 
             markov_counts.n_proposed[which_move] += 1

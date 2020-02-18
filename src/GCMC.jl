@@ -258,6 +258,186 @@ function adsorption_isotherm(framework::Framework,
     return results[[findall(x -> x==i, ids)[1] for i = 1:length(ids)]]
 end
 
+function gcmc_trials(framework::Framework, molecule_::Molecule, temperature::Float64,
+    pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,
+    eos::Symbol=:ideal, max_adsorbates=100, max_trials=100)
+
+    assert_P1_symmetry(framework)
+    start_time = time()
+    molecule = deepcopy(molecule_)
+    molecules = Molecule[]
+
+    fugacity = NaN
+    if eos == :ideal
+       fugacity = pressure * 100000.0 # bar --> Pa
+    elseif eos == :PengRobinson
+        prfluid = PengRobinsonFluid(molecule.species)
+        gas_props = calculate_properties(prfluid, temperature, pressure, verbose=false)
+        fugacity = gas_props["fugacity (bar)"] * 100000.0 # bar --> Pa
+    else
+        error("eos=:ideal and eos=:PengRobinson are only valid options for equation of state.")
+    end
+    @printf("\t%s EOS fugacity = %f bar\n", eos, fugacity / 100000.0)
+
+    repfactors = replication_factors(framework.box, ljforcefield)
+    framework = replicate(framework, repfactors)
+    set_fractional_coords!(molecule, framework.box)
+
+    if ! (total_charge(molecule) ≈ 0.0)
+        error(@sprintf("Molecule %s is not charge neutral!\n", molecule.species))
+    end
+
+    if ! (check_forcefield_coverage(framework, ljforcefield) & check_forcefield_coverage(molecule, ljforcefield))
+        error("Missing atoms from forcefield.")
+    end
+
+
+    charged_framework = charged(framework, verbose=verbose)
+    charged_molecules = charged(molecule, verbose=verbose)
+    eparams = setup_Ewald_sum(framework.box, sqrt(ljforcefield.cutoffradius_squared),
+                        verbose=verbose & (charged_framework || charged_molecules),
+                        ϵ=ewald_precision)
+    eikr_gh = Eikr(framework, eparams)
+    eikr_gg = Eikr(molecule, eparams)
+
+    # initiate system energy to which we increment when MC moves are accepted
+    system_energy = SystemPotentialEnergy()
+    # if we don't start with an empty framework, compute energy of starting configuration
+    #  (n=0 corresponds to zero energy)
+
+    moleculename = molecule_.species
+    adsorbates = zeros(Float64, max_adsorbates, 12)
+    num_adsorbates = 0
+    kprob = fugacity * framework.box.Ω / (KB * temperature)
+
+    for j = 1:max_adsorbates
+        trials = zeros(Float64, max_trials, 12)
+        best_molecule = nothing
+        best_ins_prob = 0.0
+        best_molecule_summary = nothing
+        best_energy = nothing
+        for i = 1:max_trials
+            insert_molecule!(molecules, framework.box, molecule)
+            energy = potential_energy(length(molecules), molecules, framework,
+                                      ljforcefield, eparams, eikr_gh, eikr_gg,
+                                      charged_molecules, charged_framework)
+
+            ins_prob =  kprob * exp(-sum(energy) / temperature) / length(molecules)
+            ins_prob_empty =  kprob * exp(-sum(energy.guest_host) / temperature) / 1
+
+            # @printf("%d", i)
+            # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_prob=%05.3f, del_prob=%05.3f\n", sum(system_energy), sum(energy), ins_prob, del_prob)
+            molecule_summary = [j, 0.0, 0.0, 0.0, 0.0,
+                            ins_prob, ins_prob_empty, 0.0, 0.0, molecules[end].xf_com...]
+            trials[i, :] = molecule_summary
+
+            molecule = pop!(molecules)
+            if ins_prob > best_ins_prob
+                best_molecule = molecule
+                best_ins_prob = ins_prob
+                best_molecule_summary = molecule_summary
+                best_energy = energy
+            end
+        end
+        println("$(j): best insert probability = $(best_ins_prob)")
+
+        open("trial_insertions_$(moleculename)_$(max_trials)_$(j).csv", "w") do f
+            @printf("OUTPUTTING trial_insertions.csv ~~ \n")
+            writedlm(f, trials)
+        end
+
+        if best_ins_prob > 1.0
+            num_adsorbates += 1
+            push!(molecules, best_molecule)
+            # println("system_energy [pre]: ", system_energy)
+            # println("best_energy: ", best_energy)
+            system_energy += best_energy
+            adsorbates[j, :] = best_molecule_summary
+            # println("system_energy [post]: ", system_energy)
+
+        else
+            println("Best insertion probability < 1.0 ~~")
+            break
+        end
+    end
+    println("Calculating end ins% / del%")
+
+    for i = 1:num_adsorbates
+        energy = potential_energy(i, molecules, framework, ljforcefield, eparams, eikr_gh,
+                                  eikr_gg, charged_molecules, charged_framework)
+
+        energy_empty = potential_energy(1, [molecules[i]], framework, ljforcefield, eparams, eikr_gh,
+                                        eikr_gg, charged_molecules, charged_framework)
+
+        println("energy_empty.guest_host: ", energy_empty)
+        ins_prob_empty = kprob * exp(-sum(energy_empty) / temperature) / 1
+        ins_prob_full =  kprob * exp(-sum(energy) / temperature) / length(molecules)
+
+        println("energy: ", energy)
+        println("ins_prob_full: ", ins_prob_full)
+
+        adsorbates[i, 8:9] = [ins_prob_empty, ins_prob_full]
+        adsorbates[i, 2:5]= [energy.guest_host.vdw, energy.guest_host.coulomb,
+                             energy.guest_guest.vdw, energy.guest_guest.coulomb]
+
+    end
+
+    open("inserted_adsorbates_$(moleculename).csv", "w") do f
+        writedlm(f, adsorbates)
+    end
+
+    mol_probs = zeros(Float64, num_adsorbates, num_adsorbates)
+    for i = 1:num_adsorbates
+        partial_molecules = molecules[1:i]
+        for j = 1:i
+            energy = potential_energy(j, partial_molecules, framework, ljforcefield, eparams, eikr_gh,
+                                      eikr_gg, charged_molecules, charged_framework)
+
+            mol_probs[i,j] = kprob * exp(-sum(energy) / temperature) / length(partial_molecules)
+        end
+    end
+
+    open("adsorbate_prob_by_molecule_num_$(moleculename).csv", "w") do f
+        writedlm(f, mol_probs)
+    end
+
+
+    #### PARANOIA CHECKS
+
+    # out of paranoia, assert molecules not outside box and bond lengths preserved
+    for m in molecules
+        @assert(! outside_box(m), "molecule outside box!")
+        @assert(isapprox(pairwise_atom_distances(m, framework.box),
+                         pairwise_atom_distances(molecule_, UnitCube()), atol=1e-12),
+                         "drift in atom bond lenghts!")
+        @assert(isapprox(pairwise_charge_distances(m, framework.box),
+                         pairwise_charge_distances(molecule_, UnitCube()), atol=1e-12),
+                         "drift in charge-charge lenghts!")
+    end
+
+    # compute total energy, compare to `current_energy*` variables where were incremented
+    println("molecules: ", molecules)
+    system_energy_end = SystemPotentialEnergy()
+    system_energy_end.guest_host.vdw = total_vdw_energy(framework, molecules, ljforcefield)
+    system_energy_end.guest_guest.vdw = total_vdw_energy(molecules, ljforcefield, framework.box)
+    system_energy_end.guest_host.coulomb = total(total_electrostatic_potential_energy(framework, molecules,
+                                                 eparams, eikr_gh))
+    system_energy_end.guest_guest.coulomb = total(total_electrostatic_potential_energy(molecules,
+                                        eparams, framework.box, eikr_gg))
+
+    # see Energetics_Util.jl for this function, overloaded isapprox to print mismatch
+    if ! isapprox(system_energy, system_energy_end, verbose=true, atol=0.01)
+        println(system_energy)
+        println(system_energy_end)
+        error("energy incremented improperly during simulation...")
+    end
+
+    @printf("\tEstimated elapsed time: %d seconds\n",  time() - start_time)
+
+end # gcmc_trials
+
+
+
 """
     results, molecules = gcmc_simulation(framework, molecule, temperature, pressure,
                                          ljforcefield; n_sample_cycles=5000,

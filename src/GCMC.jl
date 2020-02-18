@@ -553,7 +553,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     outer_cycle_start = (checkpoint != Dict()) ? checkpoint["outer_cycle"] + 1 : 1
 
     moleculename = molecule_.species
-    energy_log = open("energy_log_$(moleculename).txt", "w")
+    energy_log = open("energy_log_$(moleculename)_$(batch_moves ? "batch" : "baseline").txt", "w")
 
 
     for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)

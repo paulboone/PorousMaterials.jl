@@ -316,7 +316,7 @@ is ideal gas, where fugacity = pressure.
 """
 function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; n_burn_cycles::Int=5000,
-    n_sample_cycles::Int=5000, sample_frequency::Int=1, verbose::Bool=true,
+    n_sample_cycles::Int=5000, n_subcycles=400, sample_frequency::Int=1, verbose::Bool=true,
     molecules::Array{Molecule, 1}=Molecule[], ewald_precision::Float64=1e-6,
     eos::Symbol=:ideal, autosave::Bool=true, show_progress_bar::Bool=false,
     load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
@@ -559,11 +559,21 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         if show_progress_bar
             next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
         end
-        for inner_cycle = 1:max(20, length(molecules))
+        for inner_cycle = 1:n_subcycles
             markov_chain_time += 1
 
-            # choose proposed move randomly; keep track of proposals
-            which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
+            if (inner_cycle - 1) ÷ (n_subcycles/4) == 0
+                which_move = INSERTION
+            elseif (inner_cycle - 1) ÷ (n_subcycles/4) == 2
+                which_move = DELETION
+            else
+                if rand(1:2,1) == [1]
+                    which_move = TRANSLATION
+                else
+                    which_move = ROTATION
+                end
+            end
+
             markov_counts.n_proposed[which_move] += 1
 
             if which_move == INSERTION
@@ -576,15 +586,12 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 # Metropolis Hastings Acceptance for Insertion
                 probability = fugacity * framework.box.Ω / (length(molecules) * KB *
                               temperature) * exp(-sum(energy) / temperature)
-                @printf("ins: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
                 if rand() < probability
-                    @printf("accepted (ins)\n")
                     # accept the move, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
 
                     system_energy += energy
                 else
-                    @printf("rejected\n")
                     # reject the move, remove the inserted molecule
                     pop!(molecules)
                 end
@@ -602,17 +609,13 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
                 probability = length(molecules) * KB * temperature / (fugacity *
                               framework.box.Ω) * exp(sum(energy) / temperature)
-                @printf("del: E_system = %+.2e, E_delta = %+.2e, probability=%05.3f...", sum(system_energy), sum(energy), probability)
                 if rand() < probability
-                    @printf("accepted (del)\n")
                     # accept the deletion, delete molecule, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
 
                     delete_molecule!(molecule_id, molecules)
 
                     system_energy -= energy
-                else
-                    @printf("rejected\n")
                 end
             elseif (which_move == TRANSLATION) && (length(molecules) != 0)
                 # propose which molecule whose coordinates we should perturb

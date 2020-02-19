@@ -734,7 +734,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     outer_cycle_start = (checkpoint != Dict()) ? checkpoint["outer_cycle"] + 1 : 1
 
     moleculename = molecule_.species
-    energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_moves ? "batch" : "baseline").txt", "w")
+    energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_moves ? "batch" : "baseline").tsv", "w")
+    writedlm(energy_log, hcat(["cycle", "num_adsorbates", "gh_vdw", "gh_q", "gg_vdw", "gg_q", "move", "accepted"]...))
 
 
     for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
@@ -761,6 +762,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             end
 
             markov_counts.n_proposed[which_move] += 1
+            move_accepted = false
 
             if which_move == INSERTION
                 insert_molecule!(molecules, framework.box, molecule)
@@ -775,6 +777,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 if rand() < probability
                     # accept the move, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
+                    move_accepted = true
 
                     system_energy += energy
                 else
@@ -798,6 +801,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 if rand() < probability
                     # accept the deletion, delete molecule, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
+                    move_accepted = true
 
                     delete_molecule!(molecule_id, molecules)
 
@@ -823,6 +827,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
+                    move_accepted = true
 
                     system_energy += energy_new - energy_old
                 else
@@ -853,6 +858,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
+                    move_accepted = true
 
                     system_energy += energy_new - energy_old
                 else
@@ -880,6 +886,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
+                    move_accepted = true
 
                     system_energy += energy_new - energy_old
                 else
@@ -889,11 +896,12 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             end # which move the code executes
 
 
-            writedlm(energy_log, [
+            writedlm(energy_log, hcat([
                         inner_cycle, size(molecules, 1),
                         system_energy.guest_host.vdw,  system_energy.guest_host.coulomb,
-                        system_energy.guest_guest.vdw, system_energy.guest_guest.coulomb
-                    ]')
+                        system_energy.guest_guest.vdw, system_energy.guest_guest.coulomb,
+                        PROPOSAL_ENCODINGS[which_move], move_accepted ? "accepted" : ""
+                    ]...))
 
 
 

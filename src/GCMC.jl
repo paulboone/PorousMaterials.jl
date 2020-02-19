@@ -497,7 +497,7 @@ is ideal gas, where fugacity = pressure.
 """
 function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; n_burn_cycles::Int=5000,
-    n_sample_cycles::Int=5000, n_subcycles=400, sample_frequency::Int=1, verbose::Bool=true,
+    n_sample_cycles::Int=5000, n_subcycles=100, sample_frequency::Int=1, verbose::Bool=true,
     molecules::Array{Molecule, 1}=Molecule[], ewald_precision::Float64=1e-6,
     eos::Symbol=:ideal, autosave::Bool=true, show_progress_bar::Bool=false,
     load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
@@ -735,7 +735,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
     moleculename = molecule_.species
     energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_moves ? "batch" : "baseline").tsv", "w")
-    writedlm(energy_log, hcat(["cycle", "num_adsorbates", "gh_vdw", "gh_q", "gg_vdw", "gg_q", "move", "accepted"]...))
+    writedlm(energy_log, hcat(["cycle", "num_adsorbates", "gh_vdw", "gh_q", "gg_vdw", "gg_q", "move", "probability", "accepted"]...))
 
 
     for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
@@ -743,12 +743,10 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
         end
         for inner_cycle = 1:n_subcycles
-            markov_chain_time += 1
-
             if batch_moves
-                if (inner_cycle - 1) ÷ (n_subcycles/4) == 0
+                if (markov_chain_time ÷ n_subcycles) % 4  == 0
                     which_move = INSERTION
-                elseif (inner_cycle - 1) ÷ (n_subcycles/4) == 2
+                elseif (markov_chain_time ÷ n_subcycles) % 4 == 2
                     which_move = DELETION
                 else
                     if rand(1:2,1) == [1]
@@ -761,8 +759,10 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
             end
 
+            markov_chain_time += 1
             markov_counts.n_proposed[which_move] += 1
             move_accepted = false
+            probability = 0.0
 
             if which_move == INSERTION
                 insert_molecule!(molecules, framework.box, molecule)
@@ -824,7 +824,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                               charged_molecules, charged_framework)
 
                 # Metropolis Hastings Acceptance for translation
-                if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+                probability = exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+                if rand() < probability
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
@@ -855,7 +856,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                               charged_molecules, charged_framework)
 
                 # Metropolis Hastings Acceptance for rotation
-                if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+                probability = exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+                if rand() < probability
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
@@ -883,7 +885,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                               charged_molecules, charged_framework)
 
                 # Metropolis Hastings Acceptance for reinsertion
-                if rand() < exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+                probability = exp(-(sum(energy_new) - sum(energy_old)) / temperature)
+                if rand() < probability
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
@@ -897,10 +900,10 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
 
             writedlm(energy_log, hcat([
-                        inner_cycle, size(molecules, 1),
+                        markov_chain_time, size(molecules, 1),
                         system_energy.guest_host.vdw,  system_energy.guest_host.coulomb,
                         system_energy.guest_guest.vdw, system_energy.guest_guest.coulomb,
-                        PROPOSAL_ENCODINGS[which_move], move_accepted ? "accepted" : ""
+                        PROPOSAL_ENCODINGS[which_move], probability, move_accepted ? "accepted" : ""
                     ]...))
 
 
@@ -979,6 +982,9 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         end # write checkpoint
     end # outer cycles
 
+    if batch_moves && (n_burn_cycles + n_sample_cycles) % 4 != 0
+        @warn("outer cycles is not divisible by four, so total run does not represent a complete cycle of all MC moves!")
+    end
     close(energy_log)
     # finished MC moves at this point.
 

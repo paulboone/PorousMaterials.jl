@@ -1,4 +1,6 @@
 import Base: +, /
+import CSV
+import DataFrames
 import DelimitedFiles: writedlm
 
 const KB = 1.38064852e7 # Boltmann constant (Pa-m3/K --> Pa-A3/K)
@@ -257,6 +259,92 @@ function adsorption_isotherm(framework::Framework,
     #  better load balancing.
     return results[[findall(x -> x==i, ids)[1] for i = 1:length(ids)]]
 end
+
+
+function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temperature::Float64,
+    pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,
+    eos::Symbol=:ideal, max_trials=1000)
+
+    assert_P1_symmetry(framework)
+    start_time = time()
+    molecule = deepcopy(molecule_)
+    molecules = Molecule[]
+
+    repfactors = replication_factors(framework.box, ljforcefield)
+    framework = replicate(framework, repfactors)
+    set_fractional_coords!(molecule, framework.box)
+
+    if ! (total_charge(molecule) ≈ 0.0)
+        error(@sprintf("Molecule %s is not charge neutral!\n", molecule.species))
+    end
+
+    if ! (check_forcefield_coverage(framework, ljforcefield) & check_forcefield_coverage(molecule, ljforcefield))
+        error("Missing atoms from forcefield.")
+    end
+
+    charged_framework = charged(framework, verbose=verbose)
+    charged_molecules = charged(molecule, verbose=verbose)
+    eparams = setup_Ewald_sum(framework.box, sqrt(ljforcefield.cutoffradius_squared),
+                        verbose=verbose & (charged_framework || charged_molecules),
+                        ϵ=ewald_precision)
+    eikr_gh = Eikr(framework, eparams)
+    eikr_gg = Eikr(molecule, eparams)
+
+    system_energy = SystemPotentialEnergy()
+
+    moleculename = molecule_.species
+    fugacity = pressure * 100000 # bar -> Pa
+    kprob = fugacity * framework.box.Ω / (KB * temperature) # ϕΩβ
+
+    moleculename = molecule_.species
+    trials = zeros(Float64, max_trials, 5)
+    for i = 1:max_trials
+        insert_molecule!(molecules, framework.box, molecule)
+        energy = potential_energy(length(molecules), molecules, framework,
+                                  ljforcefield, eparams, eikr_gh, eikr_gg,
+                                  charged_molecules, charged_framework)
+
+        ins_probability = fugacity * framework.box.Ω / (length(molecules) * KB *
+                      temperature) * exp(-sum(energy) / temperature)
+
+        del_probability = length(molecules) * KB * temperature / (fugacity *
+                      framework.box.Ω) * exp(sum(energy) / temperature)
+                      # molecules[end].xf_com...
+
+        # @printf("%d", i)
+        # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_probability=%05.3f, del_probability=%05.3f\n", sum(system_energy), sum(energy), ins_probability, del_probability)
+        trials[i, :] = [sum(energy), ins_probability, molecules[end].xf_com...]
+        pop!(molecules)
+    end
+
+    open("trial_insertions_$(moleculename)_$(max_trials).csv", "w") do f
+        @printf("\n OUTPUTTING trial_insertions.csv ~~ \n")
+        CSV.write(f, DataFrame(trials), header=[:E, :insprob, :x, :y, :z])
+    end
+
+    # compute total energy, compare to `current_energy*` variables where were incremented
+    println("molecules: ", molecules)
+    system_energy_end = SystemPotentialEnergy()
+    system_energy_end.guest_host.vdw = total_vdw_energy(framework, molecules, ljforcefield)
+    system_energy_end.guest_guest.vdw = total_vdw_energy(molecules, ljforcefield, framework.box)
+    system_energy_end.guest_host.coulomb = total(total_electrostatic_potential_energy(framework, molecules,
+                                                 eparams, eikr_gh))
+    system_energy_end.guest_guest.coulomb = total(total_electrostatic_potential_energy(molecules,
+                                        eparams, framework.box, eikr_gg))
+
+    # see Energetics_Util.jl for this function, overloaded isapprox to print mismatch
+    if ! isapprox(system_energy, system_energy_end, verbose=true, atol=0.01)
+        println(system_energy)
+        println(system_energy_end)
+        @warn @printf("energy incremented improperly during simulation...")
+    end
+
+    @printf("\tEstimated elapsed time: %d seconds\n",  time() - start_time)
+
+end # gcmc_trial_insertions
+
+
+
 
 function gcmc_trials(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,

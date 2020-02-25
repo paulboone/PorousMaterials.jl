@@ -347,7 +347,7 @@ end # gcmc_trial_insertions
 
 
 
-function gcmc_trials(framework::Framework, molecule_::Molecule, temperature::Float64,
+function gcmc_bestofNandrepeat(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,
     eos::Symbol=:ideal, max_adsorbates=100, max_trials=100)
 
@@ -475,7 +475,6 @@ function gcmc_trials(framework::Framework, molecule_::Molecule, temperature::Flo
         writedlm(f, mol_probs)
     end
 
-
     #### PARANOIA CHECKS
 
     # out of paranoia, assert molecules not outside box and bond lengths preserved
@@ -524,6 +523,8 @@ function gcmc_trials(framework::Framework, molecule_::Molecule, temperature::Flo
 
     @printf("\tEstimated elapsed time: %d seconds\n",  time() - start_time)
 
+
+    return mol_probs
 end # gcmc_trials
 
 

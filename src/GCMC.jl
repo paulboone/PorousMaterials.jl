@@ -316,10 +316,10 @@ function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temper
         trials[i, :] = [sum(energy), ins_probability, molecules[end].xf_com...]
         pop!(molecules)
     end
-
+    trials_df = DataFrame(trials, [:E, :insprob, :x, :y, :z])
     open("trial_insertions_$(moleculename)_$(max_trials).csv", "w") do f
         @printf("\n OUTPUTTING trial_insertions.csv ~~ \n")
-        CSV.write(f, DataFrame(trials), header=[:E, :insprob, :x, :y, :z])
+        CSV.write(f, trials_df, header=[:E, :insprob, :x, :y, :z])
     end
 
     # compute total energy, compare to `current_energy*` variables where were incremented
@@ -341,6 +341,7 @@ function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temper
 
     @printf("\tEstimated elapsed time: %d seconds\n",  time() - start_time)
 
+    return trials_df
 end # gcmc_trial_insertions
 
 

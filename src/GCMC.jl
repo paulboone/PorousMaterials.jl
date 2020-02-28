@@ -587,7 +587,7 @@ is ideal gas, where fugacity = pressure.
 """
 function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; n_burn_cycles::Int=5000,
-    n_sample_cycles::Int=5000, n_subcycles=100, sample_frequency::Int=1, verbose::Bool=true,
+    n_sample_cycles::Int=5000, n_subcycles::Int=100, sample_frequency::Int=1, verbose::Bool=true,
     molecules::Array{Molecule, 1}=Molecule[], ewald_precision::Float64=1e-6,
     eos::Symbol=:ideal, autosave::Bool=true, show_progress_bar::Bool=false,
     load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
@@ -595,7 +595,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
     calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
-    batch_moves=false)
+    batch_moves::Bool=false, molecule_multiplier::Int=1)
 
     # simulation only works if framework is in P1
     assert_P1_symmetry(framework)
@@ -862,8 +862,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                                 charged_molecules, charged_framework)
 
                 # Metropolis Hastings Acceptance for Insertion
-                probability = fugacity * framework.box.Ω / (length(molecules) * KB *
-                              temperature) * exp(-sum(energy) / temperature)
+                probability = fugacity * framework.box.Ω / (length(molecules) * molecule_multiplier
+                                * KB * temperature) * exp(-sum(energy) / temperature)
                 if rand() < probability
                     # accept the move, adjust current_energy
                     markov_counts.n_accepted[which_move] += 1
@@ -886,7 +886,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 # Metropolis Hastings Acceptance for Deletion
 
 
-                probability = length(molecules) * KB * temperature / (fugacity *
+                probability = length(molecules) * molecule_multiplier * KB * temperature / (fugacity *
                               framework.box.Ω) * exp(sum(energy) / temperature)
                 if rand() < probability
                     # accept the deletion, delete molecule, adjust current_energy

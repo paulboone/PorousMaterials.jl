@@ -747,6 +747,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         for m in molecules
             # set fractional coords of these molecules consistent with framework box
             set_fractional_coords!(m, framework.box)
+            apply_periodic_boundary_condition!(m)
+
             # ensure molecule template matches species of starting molecules.
             @assert m.species == molecule.species "initializing with wrong molecule species"
             # assert that the molecules are inside the simulation box
@@ -757,7 +759,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                              atol=1e-10) "bond lengths between atoms in molecules initilized with do not match template"
             @assert isapprox(pairwise_charge_distances(m, framework.box),
                              pairwise_charge_distances(molecule, framework.box),
-                             atol=1e-10) "distances between charges in molecules initilized with do not match template"
+                             atol=1e-6) "distances between charges in molecules initilized with do not match template"
         end
 
         system_energy.guest_host.vdw = total_vdw_energy(framework, molecules, ljforcefield)

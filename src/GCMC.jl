@@ -603,21 +603,6 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         pretty_print(molecule.species, framework.name, temperature, pressure, ljforcefield)
     end
 
-    xyz_filename = gcmc_result_savename(framework.name, molecule.species,
-                    ljforcefield.name, temperature, pressure, n_burn_cycles,
-                    n_sample_cycles, comment="adsorbate_positions" * filename_comment,
-                    extension=".xyz")
-
-    xyz_snapshot_file = IOStream(xyz_filename) # declare a variable outside of scope so we only open a file if we want to snapshot
-
-    # track number of snapshots to verify .xyz of dumped adsorbate positions
-    # and for getting and accurate density value in the density_grid
-    num_snapshots = 0
-
-    # open file for xyz snapshots
-    if write_adsorbate_snapshots
-        xyz_snapshot_file = open(xyz_filename, "w")
-    end
 
     ###
     #  Convert pressure to fugacity using an equation of state
@@ -684,7 +669,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         println("\tTotal number of point charges: ", framework.charges.n_charges)
         if write_adsorbate_snapshots
             @printf("\tWriting snapshots of adsorption positions every %d cycles (after burn cycles)\n", snapshot_frequency)
-            @printf("\t\tWriting to file: %s\n", xyz_filename)
+            # @printf("\t\tWriting to file: %s\n", xyz_filename)
         end
         if calculate_density_grid
             @printf("\tTracking adsorbate spatial probability density grid of atomic species %s, updated every %d cycles (after burn cycles)\n", density_grid_species, snapshot_frequency)
@@ -802,9 +787,28 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     markov_chain_time = (checkpoint != Dict()) ? checkpoint["markov_chain_time"] : 0
     outer_cycle_start = (checkpoint != Dict()) ? checkpoint["outer_cycle"] + 1 : 1
 
+
     moleculename = molecule_.species
-    energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_moves ? "batch" : "baseline").tsv", "w")
-    writedlm(energy_log, hcat(["cycle", "num_adsorbates", "gh_vdw", "gh_q", "gg_vdw", "gg_q", "move", "probability", "accepted"]...))
+    energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_moves ? "batch" : "baseline")_$(outer_cycle_start).tsv", "w")
+    writedlm(energy_log, hcat(["time", "cycle", "num_adsorbates", "gh_vdw", "gh_q", "gg_vdw", "gg_q", "move", "probability", "accepted"]...))
+
+    xyz_filename = gcmc_result_savename(framework.name, molecule.species,
+                    ljforcefield.name, temperature, pressure, n_burn_cycles,
+                    n_sample_cycles, comment="adsorbate_positions" * string(outer_cycle_start) * filename_comment,
+                    extension=".xyz")
+
+    xyz_snapshot_file = IOStream(xyz_filename) # declare a variable outside of scope so we only open a file if we want to snapshot
+
+    # track number of snapshots to verify .xyz of dumped adsorbate positions
+    # and for getting and accurate density value in the density_grid
+    num_snapshots = 0
+
+    # open file for xyz snapshots
+    if write_adsorbate_snapshots
+        xyz_snapshot_file = open(xyz_filename, "w")
+    end
+
+
 
 
     for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
@@ -968,7 +972,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             end # which move the code executes
 
 
-            writedlm(energy_log, hcat([
+            writedlm(energy_log, hcat([@sprintf("%10.2f", time() - start_time),
                         markov_chain_time, size(molecules, 1),
                         system_energy.guest_host.vdw,  system_energy.guest_host.coulomb,
                         system_energy.guest_guest.vdw, system_energy.guest_guest.coulomb,

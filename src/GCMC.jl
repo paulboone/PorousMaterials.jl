@@ -590,8 +590,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     n_sample_cycles::Int=5000, n_subcycles::Int=100, sample_frequency::Int=1, verbose::Bool=true,
     molecules::Array{Molecule, 1}=Molecule[], ewald_precision::Float64=1e-6,
     eos::Symbol=:ideal, autosave::Bool=true, show_progress_bar::Bool=false,
-    load_checkpoint_file::Bool=false, checkpoint::Dict=Dict(),
-    checkpoint_frequency::Int=100, write_checkpoints::Bool=false,
+    checkpoint::Dict=Dict(), checkpoint_prefix="checkpoint", checkpoint_frequency::Int=100,
+    write_checkpoints::Bool=false,
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
     calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
@@ -645,23 +645,6 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     ###
     #  Address loading a checkpoint and restarting from a previous simulation
     ###
-    if checkpoint != Dict() && load_checkpoint_file
-        error("A checkpoint dictionary was provided AND load_checkpoint_file=true.\n
-        Unclear which checkpoint to start with.\n")
-    end
-    checkpoint_filename = joinpath(PATH_TO_DATA, "gcmc_checkpoints", gcmc_result_savename(
-        framework.name, molecule_.species, ljforcefield.name, temperature, pressure,
-        n_burn_cycles, n_sample_cycles, comment=filename_comment * "_checkpoint", extension=".jld2")) # path to checkpoint file
-    if load_checkpoint_file
-        if isfile(checkpoint_filename)
-            @load checkpoint_filename checkpoint
-            printstyled("\trestarting simulation from previous checkpoint.\n"; color=:yellow)
-            printstyled("\tstarting at outer cycle ", checkpoint["outer_cycle"], "\n"; color=:yellow)
-            println("\tCheckpoint filename: ", checkpoint_filename)
-        else
-            error(@sprintf("checkpoint file %s not found.\n", checkpoint_filename))
-        end
-    end
     if checkpoint != Dict()
         molecules = deepcopy(checkpoint["molecules"])
     end
@@ -1070,6 +1053,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             if ! isdir(joinpath(PATH_TO_DATA, "gcmc_checkpoints"))
                 mkdir(joinpath(PATH_TO_DATA, "gcmc_checkpoints"))
             end
+            checkpoint_filename = "$(checkpoint_prefix)_$(outer_cycle).jld2"
             @save checkpoint_filename checkpoint
         end # write checkpoint
     end # outer cycles
@@ -1258,6 +1242,7 @@ function gcmc_result_savename(framework_name::AbstractString,
                             pressure::Float64,
                             n_burn_cycles::Int,
                             n_sample_cycles::Int;
+                            current_cycles::Int = -1,
                             comment::AbstractString="",
                             extension::AbstractString="")
         framework_name = split(framework_name, ".")[1] # remove file extension
@@ -1265,9 +1250,10 @@ function gcmc_result_savename(framework_name::AbstractString,
         if comment != "" && comment[1] != '_'
             comment = "_" * comment
         end
-        filename = @sprintf("gcmc_%s_%s_T%f_P%f_%s_%dburn_%dsample%s%s", framework_name,
-                    molecule_species, temperature, pressure, ljforcefield_name,
-                    n_burn_cycles, n_sample_cycles, comment, extension)
+        currentcycles_str = current_cycles < 0 ? "" : "_$(current_cycles)"
+        filename = @sprintf("gcmc_%s_%s_T%f_P%f_%s_%dburn_%dsample%s%s%s", framework_name,
+                    molecule_species, temperature, pressure, ljforcefield_name, n_burn_cycles,
+                    n_sample_cycles, currentcycles_str, comment, extension)
 
         return filename
 end

@@ -263,7 +263,7 @@ end
 
 function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,
-    eos::Symbol=:ideal, max_trials=1000)
+    eos::Symbol=:ideal, max_trials::Int=1000, molecule_multiplier::Int=1)
 
     assert_P1_symmetry(framework)
     start_time = time()
@@ -304,15 +304,9 @@ function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temper
                                   ljforcefield, eparams, eikr_gh, eikr_gg,
                                   charged_molecules, charged_framework)
 
-        ins_probability = fugacity * framework.box.Ω / (length(molecules) * KB *
-                      temperature) * exp(-sum(energy) / temperature)
+        ins_probability = fugacity * framework.box.Ω / (length(molecules) * molecule_multiplier
+                            * KB * temperature) * exp(-sum(energy) / temperature)
 
-        del_probability = length(molecules) * KB * temperature / (fugacity *
-                      framework.box.Ω) * exp(sum(energy) / temperature)
-                      # molecules[end].xf_com...
-
-        # @printf("%d", i)
-        # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_probability=%05.3f, del_probability=%05.3f\n", sum(system_energy), sum(energy), ins_probability, del_probability)
         trials[i, :] = [sum(energy), ins_probability, molecules[end].xf_com...]
         pop!(molecules)
     end
@@ -349,7 +343,7 @@ end # gcmc_trial_insertions
 
 function gcmc_bestofNandrepeat(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,
-    eos::Symbol=:ideal, max_adsorbates=100, max_trials=100)
+    eos::Symbol=:ideal, max_adsorbates::Int=100, max_trials::Int=100, molecule_multiplier::Int=1)
 
     assert_P1_symmetry(framework)
     start_time = time()
@@ -396,8 +390,8 @@ function gcmc_bestofNandrepeat(framework::Framework, molecule_::Molecule, temper
                                       ljforcefield, eparams, eikr_gh, eikr_gg,
                                       charged_molecules, charged_framework)
 
-            ins_prob =  kprob * exp(-sum(energy) / temperature) / length(molecules)
-            ins_prob_empty =  kprob * exp(-sum(energy.guest_host) / temperature) / 1
+            ins_prob =  kprob * exp(-sum(energy) / temperature) / (length(molecules) * molecule_multiplier)
+            ins_prob_empty =  kprob * exp(-sum(energy.guest_host) / temperature) / molecule_multiplier
 
             # @printf("%d", i)
             # @printf("del: E_system = %+.2e, E_delta = %+.2e, ins_prob=%05.3f, del_prob=%05.3f\n", sum(system_energy), sum(energy), ins_prob, del_prob)
@@ -444,8 +438,8 @@ function gcmc_bestofNandrepeat(framework::Framework, molecule_::Molecule, temper
                                         eikr_gg, charged_molecules, charged_framework)
 
         println("energy_empty.guest_host: ", energy_empty)
-        ins_prob_empty = kprob * exp(-sum(energy_empty) / temperature) / 1
-        ins_prob_full =  kprob * exp(-sum(energy) / temperature) / length(molecules)
+        ins_prob_empty = kprob * exp(-sum(energy_empty) / temperature) / molecule_multiplier
+        ins_prob_full =  kprob * exp(-sum(energy) / temperature) / (length(molecules)*molecule_multiplier)
 
         println("energy: ", energy)
         println("ins_prob_full: ", ins_prob_full)

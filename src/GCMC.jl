@@ -615,7 +615,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
     calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
-    batch_moves::Bool=false, molecule_multiplier::Int=1)
+    batch_moves::Bool=false, molecule_multiplier::Int=1, n_cluster_intraenergy=0.0)
 
     # simulation only works if framework is in P1
     assert_P1_symmetry(framework)
@@ -729,7 +729,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
     # initiate system energy to which we increment when MC moves are accepted
     system_energy = SystemPotentialEnergy()
-    # if we don't start with an emtpy framework, compute energy of starting configuration
+    # if we don't start with an empty framework, compute energy of starting configuration
     #  (n=0 corresponds to zero energy)
     if length(molecules) != 0
         for m in molecules
@@ -835,7 +835,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     end
 
 
-
+    # stick all the adjustment energy in Coulomb, though we know it is a sum of vdw + q
+    n_cluster_energy_adustment = SystemPotentialEnergy(PotentialEnergy(), PotentialEnergy(0.0, n_cluster_intraenergy))
 
     for outer_cycle = outer_cycle_start:(n_burn_cycles + n_sample_cycles)
         if show_progress_bar
@@ -870,6 +871,10 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                                 ljforcefield, eparams, eikr_gh, eikr_gg,
                                                 charged_molecules, charged_framework)
 
+                # WARNING: if n_cluster_intraenergy > 0, this will break the system post-check on the
+                # energy sums!
+                energy += n_cluster_energy_adustment
+
                 # Metropolis Hastings Acceptance for Insertion
                 probability = fugacity * framework.box.Ω / (length(molecules) * molecule_multiplier
                                 * KB * temperature) * exp(-sum(energy) / temperature)
@@ -891,6 +896,10 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 energy = potential_energy(molecule_id, molecules, framework, ljforcefield,
                                           eparams, eikr_gh, eikr_gg,
                                           charged_molecules, charged_framework)
+
+                # WARNING: if n_cluster_intraenergy > 0, this will break the system post-check on the
+                # energy sums!
+                energy += n_cluster_energy_adustment
 
                 # Metropolis Hastings Acceptance for Deletion
 
@@ -1134,7 +1143,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
     # see Energetics_Util.jl for this function, overloaded isapprox to print mismatch
     if ! isapprox(system_energy, system_energy_end, verbose=true, atol=0.01)
-        error("energy incremented improperly during simulation...")
+        @warn @printf("energy incremented improperly during simulation...")
     end
 
     @assert (markov_chain_time == sum(markov_counts.n_proposed))

@@ -338,6 +338,32 @@ function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temper
     return trials_df
 end # gcmc_trial_insertions
 
+function gcmc_energy(framework, molecule_::Molecule, molecules::Array{Molecule, 1}, ljforcefield::LJForceField; verbose::Bool=true,
+            eos::Symbol=:ideal, ewald_precision::Float64=1e-6)
+
+    molecule = deepcopy(molecule_)
+
+    repfactors = replication_factors(framework.box, ljforcefield)
+    framework = replicate(framework, repfactors)
+    for m in molecules
+        set_fractional_coords!(m, framework.box)
+    end
+
+    charged_framework = false
+    charged_molecules = true
+    eparams = setup_Ewald_sum(framework.box, sqrt(ljforcefield.cutoffradius_squared),
+                        verbose=verbose & (charged_framework || charged_molecules),
+                        ϵ=ewald_precision)
+    eikr_gh = Eikr(framework, eparams)
+    eikr_gg = Eikr(molecule, eparams)
+
+    system_energy = SystemPotentialEnergy()
+
+    energy = potential_energy(length(molecules), molecules, framework,
+                              ljforcefield, eparams, eikr_gh, eikr_gg,
+                              charged_molecules, charged_framework)
+    return energy
+end # gcmc_energies
 
 
 

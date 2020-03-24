@@ -153,7 +153,8 @@ export
     calculate_properties, PengRobinsonFluid, VdWFluid,
 
     # GCMC.jl
-    gcmc_simulation, gcmc_bestofNandrepeat, gcmc_trial_insertions, adsorption_isotherm, stepwise_adsorption_isotherm,
+    gcmc_simulation, gcmc_bestofNandrepeat, gcmc_trial_insertions, gcmc_simulation_clusters, gcmc_energy,
+    adsorption_isotherm, stepwise_adsorption_isotherm,
     gcmc_result_savename, GCMCstats, MarkovCounts,
 
     # Henry.jl

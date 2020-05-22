@@ -1143,7 +1143,13 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
     # see Energetics_Util.jl for this function, overloaded isapprox to print mismatch
     if ! isapprox(system_energy, system_energy_end, verbose=true, atol=0.01)
-        @warn @printf("energy incremented improperly during simulation...")
+        @warn @printf("energy incremented improperly during simulation... %d != %d",
+                        system_energy.guest_guest.coulomb, system_energy_end.guest_guest.coulomb)
+
+        @warn @printf("(w/ correction) energy incremented improperly during simulation... %d != %d",
+                        system_energy.guest_guest.coulomb,
+                        system_energy_end.guest_guest.coulomb + n_cluster_energy_adustment.guest_guest.coulomb * length(molecules))
+
     end
 
     @assert (markov_chain_time == sum(markov_counts.n_proposed))

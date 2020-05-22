@@ -9,3 +9,4 @@ VisualizeTester.jl
 *.jld2
 docs/build/
 docs/site/
+.DS_Store

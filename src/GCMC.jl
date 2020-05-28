@@ -615,7 +615,10 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
     calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
-    batch_moves::Bool=false, molecule_multiplier::Int=1, n_cluster_intraenergy=0.0)
+    batch_move_type::Int=1, molecule_multiplier::Int=1, n_cluster_intraenergy=0.0)
+
+    batch_move_labels = ["baseline", "batch", "batch_up", "batch_upmove"]
+    batch_move_label = batch_move_labels[batch_move_type]
 
     # simulation only works if framework is in P1
     assert_P1_symmetry(framework)
@@ -815,7 +818,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
 
     moleculename = molecule_.species
-    energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_moves ? "batch" : "baseline")_$(outer_cycle_start).tsv", "w")
+    energy_log = open("energy_log_$(moleculename)_$(fugacity)_n$(n_subcycles)_$(batch_move_label)_$(outer_cycle_start).tsv", "w")
     writedlm(energy_log, hcat(["time", "cycle", "num_adsorbates", "gh_vdw", "gh_q", "gg_vdw", "gg_q", "move", "probability", "accepted"]...))
 
     xyz_filename = gcmc_result_savename(framework.name, molecule.species,
@@ -843,7 +846,9 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
         end
         for inner_cycle = 1:n_subcycles
-            if batch_moves
+            if batch_move_type == 1 # normal GCMC
+                which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
+            elseif batch_move_type == 2 # batch GCMC
                 if (markov_chain_time ÷ n_subcycles) % 4  == 0
                     which_move = INSERTION
                 elseif (markov_chain_time ÷ n_subcycles) % 4 == 2
@@ -855,8 +860,24 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                         which_move = ROTATION
                     end
                 end
-            else
-                which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
+            elseif batch_move_type == 3 # batch up GCMC
+                if (markov_chain_time ÷ n_subcycles) % 4  == 0
+                    which_move = INSERTION
+                else
+                    which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
+                end
+            elseif batch_move_type == 4 # batch up/move GCMC
+                if (markov_chain_time ÷ n_subcycles) % 4  == 0
+                    which_move = INSERTION
+                elseif (markov_chain_time ÷ n_subcycles) % 4 == 1
+                    if rand(1:2,1) == [1]
+                        which_move = TRANSLATION
+                    else
+                        which_move = ROTATION
+                    end
+                else
+                    which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
+                end
             end
 
             markov_chain_time += 1
@@ -1091,7 +1112,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         end # write checkpoint
     end # outer cycles
 
-    if batch_moves && (n_burn_cycles + n_sample_cycles) % 4 != 0
+    if batch_move_type >= 2 && (n_burn_cycles + n_sample_cycles) % 4 != 0
         @warn("outer cycles is not divisible by four, so total run does not represent a complete cycle of all MC moves!")
     end
     close(energy_log)

@@ -263,7 +263,8 @@ end
 
 function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; verbose::Bool=true, ewald_precision::Float64=1e-6,
-    eos::Symbol=:ideal, max_trials::Int=1000, molecule_multiplier::Int=1)
+    eos::Symbol=:ideal, max_trials::Int=1000, molecule_multiplier::Int=1,
+    checkpoint_best_insert::Bool=true, file_suffix::AbstractString="")
 
     assert_P1_symmetry(framework)
     start_time = time()
@@ -298,6 +299,11 @@ function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temper
 
     moleculename = molecule_.species
     trials = zeros(Float64, max_trials, 5)
+
+    best_molecule = nothing
+    best_ins_prob = 0.0
+    best_energy = 0.0
+
     for i = 1:max_trials
         insert_molecule!(molecules, framework.box, molecule)
         energy = potential_energy(length(molecules), molecules, framework,
@@ -307,13 +313,33 @@ function gcmc_trial_insertions(framework::Framework, molecule_::Molecule, temper
         ins_probability = fugacity * framework.box.Ω / (length(molecules) * molecule_multiplier
                             * KB * temperature) * exp(-sum(energy) / temperature)
 
-        trials[i, :] = [sum(energy), ins_probability, molecules[end].xf_com...]
-        pop!(molecules)
+        trial_molecule = pop!(molecules)
+        trials[i, :] = [sum(energy), ins_probability, trial_molecule.xf_com...]
+
+        if ins_probability > best_ins_prob
+            best_molecule = trial_molecule
+            best_ins_prob = ins_probability
+            best_energy = sum(energy)
+        end
     end
     trials_df = DataFrame(trials, [:E, :insprob, :x, :y, :z])
-    open("trial_insertions_$(moleculename)_$(max_trials).csv", "w") do f
+    open("trial_insertions_$(moleculename)_$(max_trials)_$(file_suffix).csv", "w") do f
         @printf("\n OUTPUTTING trial_insertions.csv ~~ \n")
         CSV.write(f, trials_df, header=[:E, :insprob, :x, :y, :z])
+    end
+
+    if checkpoint_best_insert
+        checkpoint = Dict("molecules" => [best_molecule],
+                          "best_insert_probability" => best_ins_prob,
+                          "best_energy" => best_energy)
+        # bring back fractional coords to Cartesian.
+        if ! isnothing(best_molecule)
+            for m in checkpoint["molecules"]
+                set_fractional_coords_to_unit_cube!(m, framework.box)
+            end
+        end
+        checkpoint_filename = "molchk-$(moleculename)_$(max_trials)_$(file_suffix).jld2"
+        @save checkpoint_filename checkpoint
     end
 
     # compute total energy, compare to `current_energy*` variables where were incremented

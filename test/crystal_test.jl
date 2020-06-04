@@ -192,6 +192,11 @@ using Random
     symmetry_rules_two = [Array{AbstractString, 2}(undef, 3, 0) ["x" "y + z";
                                                                  "y" "x + z";
                                                                  "z" "x + y"]]
+    # test that whitespace in a blank line after symmetry rules doesn't cause
+    #   errors in reading in a file
+    ignore_whitespace = Framework("NiPyC2.cif")
+    @test ignore_whitespace.space_group == "P1"
+
     symmetry_rules_two_cpy = deepcopy(symmetry_rules_two)
     @test ! is_symmetry_equal(symmetry_rules, symmetry_rules_two)
     @test ! is_symmetry_equal(symmetry_rules, other_symmetry_rules)
@@ -237,6 +242,26 @@ using Random
     @test isapprox(f4.atoms, f1.atoms + f2.atoms + f3.atoms)
     @test isapprox(f4.charges, f1.charges + f2.charges + f3.charges)
 
+    # test framework partitioning
+    sbmof1 = Framework("SBMOF-1.cif")
+    # create 3 partitions to test splitting the framework
+    #   there are 120 atoms in sbmof1, so each partition will have 40 atoms
+    lo = collect(1:40)
+    mid = collect(41:80)
+    hi = collect(81:120)
+    sbmof1_partitions = partition_framework(sbmof1, [lo, mid, hi])
+    @test length(lo) == sbmof1_partitions[1].atoms.n_atoms
+    @test length(mid) == sbmof1_partitions[2].atoms.n_atoms
+    @test length(hi) == sbmof1_partitions[3].atoms.n_atoms
+    # add the framework partitions back together
+    sbmof1_rebuilt = +(sbmof1_partitions...)
+    @test isapprox(sbmof1, sbmof1_rebuilt)
+
+    # test framework partitioning with the errors it should throw
+    lo_hi = vcat(collect(1:20), collect(101:120))
+    @test_throws ErrorException partition_framework(sbmof1, [lo, hi])
+    @test_throws ErrorException partition_framework(sbmof1, [lo, mid, hi, lo_hi])
+
     # more xtal tests
     sbmof1 = Framework("SBMOF-1.cif")
     @test !charged(sbmof1)
@@ -266,6 +291,14 @@ using Random
     @test isapprox(distance(frame, 2, 5, false), 4.059, atol=0.001)
     @test isapprox(distance(frame, 1, 5, false), 17.279, atol=0.001)
     @test isapprox(distance(frame, 1, 5, true), 1.531, atol=0.001)
+
+    # test reading crystals and include 0.0 charges
+    frame1 = Framework("ATIBOU01_clean.cif")
+    @test ! any(frame1.charges.q .== 0.0)
+    @test frame1.charges.n_charges == frame1.atoms.n_atoms - 4 # 4 charges are zero
+    frame2 = Framework("ATIBOU01_clean.cif"; include_zero_charges=true)
+    @test frame2.charges.n_charges == frame2.atoms.n_atoms
+    @test isapprox(frame2.charges.xf, frame2.atoms.xf)
 
 #=    ## .cssr reader test
     # test replicate framework

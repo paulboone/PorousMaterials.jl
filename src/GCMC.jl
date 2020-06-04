@@ -641,7 +641,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
     calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
-    batch_move_type::Int=1, molecule_multiplier::Int=1, n_cluster_intraenergy=0.0)
+    batch_move_type::Int=1, molecule_multiplier::Int=1, n_cluster_intraenergy=0.0,
+    starting_δ::Float64=0.0, starting_φ::Float64=0.0, adjust_δ_every::Int=4000)
 
     batch_move_labels = ["baseline", "batch", "batch_up", "batch_upmove"]
     batch_move_label = batch_move_labels[batch_move_type]
@@ -830,11 +831,32 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     end
     N_CYCLES_PER_BLOCK = floor(Int, n_sample_cycles / N_BLOCKS)
 
+
+    δ = 1.0
+    φ = 1.0
     markov_counts = MarkovCounts(zeros(Int, length(PROPOSAL_ENCODINGS)), zeros(Int, length(PROPOSAL_ENCODINGS)))
+    recent_markov_counts = MarkovCounts(zeros(Int, length(PROPOSAL_ENCODINGS)), zeros(Int, length(PROPOSAL_ENCODINGS)))
     if checkpoint != Dict()
         gcmc_stats = checkpoint["gcmc_stats"]
         current_block = checkpoint["current_block"]
         markov_counts = checkpoint["markov_counts"]
+        if haskey(checkpoint, "recent_markov_counts")
+            recent_markov_counts = checkpoint["recent_markov_counts"]
+        end
+        if haskey(checkpoint, "δ")
+            δ = checkpoint["δ"]
+        end
+        if haskey(checkpoint, "φ")
+            φ = checkpoint["φ"]
+        end
+    end
+
+    # if a starting_δ was passed, override the default δ and the checkpoint δ
+    if starting_δ != 0.0
+        δ = starting_δ
+    end
+    if starting_φ != 0.0
+        φ = starting_φ
     end
 
     # (n_burn_cycles + n_sample_cycles) is number of outer cycles.
@@ -871,6 +893,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
         if show_progress_bar
             next!(progress_bar; showvalues=[(:cycle, outer_cycle), (:number_of_molecules, length(molecules))])
         end
+
         for inner_cycle = 1:n_subcycles
             if batch_move_type == 1 # normal GCMC
                 which_move = sample(1:N_PROPOSAL_TYPES, mc_proposal_probabilities) # StatsBase.jl
@@ -908,6 +931,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
 
             markov_chain_time += 1
             markov_counts.n_proposed[which_move] += 1
+            recent_markov_counts.n_proposed[which_move] += 1
             move_accepted = false
             probability = 0.0
 
@@ -971,7 +995,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                           eparams, eikr_gh, eikr_gg,
                                           charged_molecules, charged_framework)
 
-                old_molecule = translate_molecule!(molecules[molecule_id], framework.box)
+                old_molecule = translate_molecule!(molecules[molecule_id], framework.box, scale=δ)
 
                 # energy of the molecule after it is translated
                 energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
@@ -983,6 +1007,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 if rand() < probability
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
+                    recent_markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
 
                     system_energy += energy_new - energy_old
@@ -1003,18 +1028,22 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 old_molecule = deepcopy(molecules[molecule_id])
 
                 # conduct a random rotation
-                rotate!(molecules[molecule_id], framework.box)
+                rotate!(molecules[molecule_id], framework.box, scale=φ)
+
 
                 # energy of the molecule after it is translated
                 energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
                                               eparams, eikr_gh, eikr_gg,
                                               charged_molecules, charged_framework)
 
+                # println(sum(energy_old), sum(energy_new), old_molecule, molecules[molecule_id], φ)
+
                 # Metropolis Hastings Acceptance for rotation
                 probability = exp(-(sum(energy_new) - sum(energy_old)) / temperature)
                 if rand() < probability
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
+                    recent_markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
 
                     system_energy += energy_new - energy_old
@@ -1079,6 +1108,13 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             end # sampling
         end # inner cycles
 
+        if outer_cycle <= n_burn_cycles && outer_cycle % adjust_δ_every == 0
+            δ = adjust_δ(δ, recent_markov_counts.n_accepted[TRANSLATION], recent_markov_counts.n_proposed[TRANSLATION])
+            φ = adjust_φ(φ, recent_markov_counts.n_accepted[ROTATION], recent_markov_counts.n_proposed[ROTATION])
+            # reset recent counts to zero
+            recent_markov_counts = MarkovCounts(zeros(Int, length(PROPOSAL_ENCODINGS)), zeros(Int, length(PROPOSAL_ENCODINGS)))
+        end
+
         # print block statistics / increment block
         if (outer_cycle > n_burn_cycles) && (current_block != N_BLOCKS) && (
             (outer_cycle - n_burn_cycles) % N_CYCLES_PER_BLOCK == 0)
@@ -1124,6 +1160,9 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                               "gcmc_stats" => gcmc_stats,
                               "markov_counts" => markov_counts,
                               "markov_chain_time" => markov_chain_time,
+                              "recent_markov_counts" => recent_markov_counts,
+                              "δ" => δ,
+                              "φ" => φ,
                               "time" => time() - start_time # TODO not quite
                               )
             # bring back fractional coords to Cartesian.

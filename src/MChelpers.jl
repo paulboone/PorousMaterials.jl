@@ -1,6 +1,10 @@
 # δ is half the maximal distance a particle is perturbed in a given coordinate
 #  during particle translations
-const δ = 2.0 # Å
+const maxδ = 2.0 # Å
+const minδ = 0.01 # Å
+
+const maxφ = 1.0 # all rotations on sphere valid; equivalent to 2π radians
+const minφ = 0.0000001 # move only 1% of possible distance; equivalent to 2π/100 radians
 
 # break collection of statistics into blocks to gauge convergence and compute standard err
 const N_BLOCKS = 5
@@ -81,6 +85,22 @@ function apply_periodic_boundary_condition!(molecule::Molecule)
     end
 end
 
+const desired_acceptance_rate = 0.50
+
+function adjust_δ(δ::Float64, accepted, proposed)
+    recent_acceptance_rate = accepted / proposed
+    new_δ = max(min(δ * recent_acceptance_rate / desired_acceptance_rate, maxδ), minδ)
+    @printf("adjusting: δ = %4.3f => %4.3f [acceptance rate: %4.2f]\n", δ, new_δ, recent_acceptance_rate)
+    return new_δ
+end
+
+function adjust_φ(φ::Float64, accepted, proposed)
+    recent_acceptance_rate = accepted / proposed
+    new_φ = max(min(φ * recent_acceptance_rate / desired_acceptance_rate, maxφ), minφ)
+    @printf("adjusting: φ = %f => %f [acceptance rate: %f]\n", φ, new_φ, recent_acceptance_rate)
+    return new_φ
+end
+
 """
     translate_molecule!(molecule, box)
 
@@ -96,12 +116,12 @@ if the Monte Carlo proposal is rejected.
 # Returns
 - `old_molecule::Molecule`: The old molecule in case the MC proposal is rejected
 """
-function translate_molecule!(molecule::Molecule, box::Box)
+function translate_molecule!(molecule::Molecule, box::Box; scale::Float64)
     # store old molecule and return at the end for possible restoration
     old_molecule = deepcopy(molecule)
 
-    # peturb in Cartesian coords in a random cube centered at current coords.
-    dx = δ * (rand(3) .- 0.5) # move every atom of the molecule by the same vector.
+    # perturb in Cartesian coords in a random cube centered at current coords.
+    dx = scale * (rand(3) .- 0.5) # move every atom of the molecule by the same vector.
     translate_by!(molecule, dx, box)
 
     # done, unless the molecule has moved outside of the box, then apply PBC
@@ -151,6 +171,6 @@ rotating a single atom isn't necessary.
 
 # Returns
 - `is_rotatable::Bool`: A boolean describing whether or not rotating the molecule
-    will alter its interactions with other molecules 
+    will alter its interactions with other molecules
 """
 rotatable(molecule::Molecule) = (molecule.atoms.n_atoms + molecule.charges.n_charges > 1)::Bool

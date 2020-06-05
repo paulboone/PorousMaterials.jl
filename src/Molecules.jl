@@ -285,21 +285,25 @@ See James Arvo. Fast Random Rotation Matrices.
 
 https://pdfs.semanticscholar.org/04f3/beeee1ce89b9adf17a6fabde1221a328dbad.pdf
 
+# Arguments
+- `φ::Float64`: the rotation scale factor φ in units of 1/2π.
+
 # Returns
-- `r::Array{Float64, 2}`: A 3x3 random rotation matrix
+- `r::Array{Float64, 2}`: A 3x3 random rotation matrix, limited by the scale.
 """
-function rotation_matrix()
+function rotation_matrix(;φ::Float64=1.0)
     # random rotation about the z-axis
-    u₁ = rand() * 2.0 * π
+    u₁ = rand() * 2.0 * π * φ
     r = [cos(u₁) sin(u₁) 0.0; -sin(u₁) cos(u₁) 0.0; 0.0 0.0 1.0]
 
     # househoulder matrix
     u₂ = 2.0 * π * rand()
-    u₃ = rand()
+    u₃ = rand() * φ
+
     v = [cos(u₂) * sqrt(u₃), sin(u₂) * sqrt(u₃), sqrt(1.0 - u₃)]
     h = Matrix{Float64}(I, 3, 3) - 2 * v * transpose(v)
-    return - h * r
-end
+    return diagm([-1.0, -1.0, 1.0]) * -h * r
+ end
 
 """
     rotate!(molecule, box)
@@ -310,18 +314,21 @@ The box is needed because the molecule contains only its fractional coordinates.
 # Arguments
 - `molecule::Molecule`: The molecule which will be subject to a random rotation
 - `box::Box`: The molecule only contains fractional coordinates, so the box is needed for a correct rotation
+- `scale::Float64`: the rotation cale factor φ.
 """
-function rotate!(molecule::Molecule, box::Box)
+function rotate!(molecule::Molecule, box::Box; scale::Float64=1.0)
     # generate a random rotation matrix
     #    but use c_to_f, f_to_c for fractional
-    r = rotation_matrix()
+    r = rotation_matrix(φ=scale)
     r = box.c_to_f * r * box.f_to_c
     # conduct the rotation
     # shift to origin
     molecule.atoms.xf[:] = broadcast(-, molecule.atoms.xf, molecule.xf_com)
     molecule.charges.xf[:] = broadcast(-, molecule.charges.xf, molecule.xf_com)
     # conduct the rotation
+
     molecule.atoms.xf[:] = r * molecule.atoms.xf
+    # println("$(molecule.charges.xf) => $(r * molecule.charges.xf)")
     molecule.charges.xf[:] = r * molecule.charges.xf
     # shift back to center of mass
     molecule.atoms.xf[:] = broadcast(+, molecule.atoms.xf, molecule.xf_com)
@@ -404,7 +411,7 @@ function charged(molecule::Molecule; verbose::Bool=false)
 end
 
 """
-    bond_lenghts = pairwise_atom_distances(molecule, box) 
+    bond_lenghts = pairwise_atom_distances(molecule, box)
 
 Loop over all pairs of `Atoms`'s in `molecule.atoms`. Return a matrix whose `(i, j)`
 element is the distance between atom `i` and atom `j` in the molecule.
@@ -458,9 +465,9 @@ end
 """
     drift = bond_length_drift(molecule, reference_molecule, box, atol=1e-14, throw_warning=true)
 
-Compute pairwise atom & charge distances of `molecule` and compare to those in a reference 
-molecule to determine if the pairwise atom & charge distances differ within a tolerance 
-`atol`. This is useful for checking for drift in the course of the simulation, during 
+Compute pairwise atom & charge distances of `molecule` and compare to those in a reference
+molecule to determine if the pairwise atom & charge distances differ within a tolerance
+`atol`. This is useful for checking for drift in the course of the simulation, during
 which rotations and translations are performed.
 
 # Arguments

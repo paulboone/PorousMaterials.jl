@@ -587,7 +587,8 @@ end # gcmc_trials
                                          write_adsorbate_snapshots=false,
                                          snapshot_frequency=1, calculate_density_grid=false,
                                          density_grid_dx=1.0, density_grid_species=nothing,
-                                         filename_comment="")
+                                         filename_comment="", starting_δ=1.0, starting_φ=1.0,
+                                         adjust_scale_factors_frequency=100)
 
 Runs a grand-canonical (μVT) Monte Carlo simulation of the adsorption of a molecule in a
 framework at a particular temperature and pressure using a
@@ -630,6 +631,9 @@ is ideal gas, where fugacity = pressure.
 - `density_grid_dx::Float64`: The (approximate) space between voxels (in Angstroms) in the density grid. The number of voxels in the simulation box is computed automatically by [`required_n_pts`](@ref).
 - `density_grid_species::Symbol`: The atomic species within the `molecule` for which we will compute the density grid.
 - `filename_comment::AbstractString`: An optional comment that will be appended to the name of the saved file (if autosaved)
+- `starting_δ::Float64`: simulation starting translation scale factor δ (in angstroms). This will be adaptively adjusted to attempt to reach 50% acceptance / 50% rejection for all translation moves.
+- `starting_φ::Float64`: simulation starting rotation scale factor φ (where 1=2π radians). This will be adaptively adjusted to attempt to reach 50% acceptance / 50% rejection for all rotation moves.
+- `adjust_scale_factors_frequency::Int`: will adjust the scale factors every `adjust_scale_factors_frequency` cycles.
 """
 function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature::Float64,
     pressure::Float64, ljforcefield::LJForceField; n_burn_cycles::Int=5000,
@@ -639,8 +643,9 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     checkpoint::Dict=Dict(), checkpoint_prefix="checkpoint", checkpoint_frequency::Int=100,
     write_checkpoints::Bool=false,
     write_adsorbate_snapshots::Bool=false, snapshot_frequency::Int=1,
-    calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0,
+    calculate_density_grid::Bool=false, density_grid_dx::Float64=1.0, 
     density_grid_species::Union{Nothing, Symbol}=nothing, filename_comment::AbstractString="",
+    starting_δ::Float64=1.0, starting_φ::Float64=1.0, adjust_scale_factors_frequency::Int=100,
     batch_move_type::Int=1, molecule_multiplier::Int=1, n_cluster_intraenergy=0.0)
 
     batch_move_labels = ["baseline", "batch", "batch_up", "batch_upmove"]
@@ -830,11 +835,24 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
     end
     N_CYCLES_PER_BLOCK = floor(Int, n_sample_cycles / N_BLOCKS)
 
+
+    δ = starting_δ
+    φ = starting_φ
     markov_counts = MarkovCounts(zeros(Int, length(PROPOSAL_ENCODINGS)), zeros(Int, length(PROPOSAL_ENCODINGS)))
+    recent_markov_counts = MarkovCounts(zeros(Int, length(PROPOSAL_ENCODINGS)), zeros(Int, length(PROPOSAL_ENCODINGS)))
     if checkpoint != Dict()
         gcmc_stats = checkpoint["gcmc_stats"]
         current_block = checkpoint["current_block"]
         markov_counts = checkpoint["markov_counts"]
+        if haskey(checkpoint, "recent_markov_counts")
+            recent_markov_counts = checkpoint["recent_markov_counts"]
+        end
+        if haskey(checkpoint, "δ")
+            δ = checkpoint["δ"]
+        end
+        if haskey(checkpoint, "φ")
+            φ = checkpoint["φ"]
+        end
     end
 
     # (n_burn_cycles + n_sample_cycles) is number of outer cycles.
@@ -910,6 +928,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             markov_counts.n_proposed[which_move] += 1
             move_accepted = false
             probability = 0.0
+            recent_markov_counts.n_proposed[which_move] += 1
 
             if which_move == INSERTION
                 insert_molecule!(molecules, framework.box, molecule)
@@ -971,7 +990,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                                           eparams, eikr_gh, eikr_gg,
                                           charged_molecules, charged_framework)
 
-                old_molecule = translate_molecule!(molecules[molecule_id], framework.box)
+                old_molecule = translate_molecule!(molecules[molecule_id], framework.box, scale=δ)
 
                 # energy of the molecule after it is translated
                 energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
@@ -984,7 +1003,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
-
+                    recent_markov_counts.n_accepted[which_move] += 1
                     system_energy += energy_new - energy_old
                 else
                     # reject the move, put back the old molecule
@@ -1003,7 +1022,8 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                 old_molecule = deepcopy(molecules[molecule_id])
 
                 # conduct a random rotation
-                rotate!(molecules[molecule_id], framework.box)
+                rotate!(molecules[molecule_id], framework.box, scale=φ)
+
 
                 # energy of the molecule after it is translated
                 energy_new = potential_energy(molecule_id, molecules, framework, ljforcefield,
@@ -1016,7 +1036,7 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                     # accept the move, adjust current energy
                     markov_counts.n_accepted[which_move] += 1
                     move_accepted = true
-
+                    recent_markov_counts.n_accepted[which_move] += 1
                     system_energy += energy_new - energy_old
                 else
                     # reject the move, put back the old molecule
@@ -1079,6 +1099,14 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
             end # sampling
         end # inner cycles
 
+        # only adjust the scale factors during burn cycles; doing otherwise will mess up the MC math.
+        if outer_cycle <= n_burn_cycles && outer_cycle % adjust_scale_factors_frequency == 0
+            δ = adjust_δ(δ, recent_markov_counts.n_accepted[TRANSLATION], recent_markov_counts.n_proposed[TRANSLATION])
+            φ = adjust_φ(φ, recent_markov_counts.n_accepted[ROTATION], recent_markov_counts.n_proposed[ROTATION])
+            # reset recent counts to zero
+            recent_markov_counts = MarkovCounts(zeros(Int, length(PROPOSAL_ENCODINGS)), zeros(Int, length(PROPOSAL_ENCODINGS)))
+        end
+
         # print block statistics / increment block
         if (outer_cycle > n_burn_cycles) && (current_block != N_BLOCKS) && (
             (outer_cycle - n_burn_cycles) % N_CYCLES_PER_BLOCK == 0)
@@ -1124,6 +1152,9 @@ function gcmc_simulation(framework::Framework, molecule_::Molecule, temperature:
                               "gcmc_stats" => gcmc_stats,
                               "markov_counts" => markov_counts,
                               "markov_chain_time" => markov_chain_time,
+                              "recent_markov_counts" => recent_markov_counts,
+                              "δ" => δ,
+                              "φ" => φ,
                               "time" => time() - start_time # TODO not quite
                               )
             # bring back fractional coords to Cartesian.
